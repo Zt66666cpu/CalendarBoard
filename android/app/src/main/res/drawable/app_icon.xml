@@ -1,8 +1,17 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="48dp" android:height="48dp" android:viewportWidth="48" android:viewportHeight="48">
-    <path android:fillColor="#344760" android:pathData="M10,3h28a7,7 0,0 1,7 7v28a7,7 0,0 1,-7 7H10a7,7 0,0 1,-7 -7V10a7,7 0,0 1,7 -7z"/>
-    <path android:fillColor="#DBEAF8" android:pathData="M11,13h26v24H11z"/>
-    <path android:fillColor="#7093B5" android:pathData="M11,13h26v7H11z"/>
-    <path android:fillColor="#344760" android:pathData="M16,24h6v5h-6zM26,24h6v5h-6zM16,32h6v3h-6zM26,32h6v3h-6z"/>
+    <!-- Warm cream knit rounded tile -->
+    <path android:fillColor="#F6F1E7" android:strokeColor="#DDD2BF" android:strokeWidth="1.5"
+        android:pathData="M13,3h22a10,10 0,0 1,10 10v22a10,10 0,0 1,-10 10H13a10,10 0,0 1,-10 -10V13a10,10 0,0 1,10 -10z"/>
+    <!-- Inner oatmeal card -->
+    <path android:fillColor="#FFFDF9" android:strokeColor="#E5DBCA" android:strokeWidth="1"
+        android:pathData="M15,11h18a5,5 0,0 1,5 5v18a5,5 0,0 1,-5 5H15a5,5 0,0 1,-5 -5V16a5,5 0,0 1,5 -5z"/>
+    <!-- Warm cocoa top header -->
+    <path android:fillColor="#5C4D42"
+        android:pathData="M15,11h18a5,5 0,0 1,5 5v3H10v-3a5,5 0,0 1,5 -5z"/>
+    <!-- Minimalist yarn dots -->
+    <path android:fillColor="#6B8FA3" android:pathData="M17,26m-2.6,0a2.6,2.6 0,1 1,5.2 0a2.6,2.6 0,1 1,-5.2 0"/>
+    <path android:fillColor="#C68B59" android:pathData="M24,26m-2.6,0a2.6,2.6 0,1 1,5.2 0a2.6,2.6 0,1 1,-5.2 0"/>
+    <path android:fillColor="#B67B7E" android:pathData="M31,26m-2.6,0a2.6,2.6 0,1 1,5.2 0a2.6,2.6 0,1 1,-5.2 0"/>
+    <path android:fillColor="#D9CEBC" android:pathData="M16,32.5h16a1.5,1.5 0,0 1,0 3H16a1.5,1.5 0,0 1,0 -3z"/>
 </vector>
-

@@ -10,6 +10,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -116,12 +117,14 @@ final class CalendarApi {
         }
         String today = LocalDate.now().toString();
         JSONArray weekSchedules = new JSONArray();
+        JSONArray allItems = new JSONArray();
         List<JSONObject> courses = new ArrayList<>(), todos = new ArrayList<>(), schedules = new ArrayList<>();
         for (int i = 0; i < all.length(); i++) {
             JSONObject row = all.getJSONObject(i);
             JSONObject item = row.optJSONObject("payload");
             if (item == null) continue;
             item.put("_row_id", row.optString("id"));
+            allItems.put(item);
             String date = item.optString("date");
             String type = item.optString("type");
             if ("课程".equals(type) && today.equals(date)) courses.add(item);
@@ -138,6 +141,7 @@ final class CalendarApi {
                 .put("todo", format("待办", todos, false))
                 .put("schedule", format("日程", schedules, true))
                 .put("week_schedules", weekSchedules)
+                .put("all_items", allItems)
                 .put("editable_items", editable(courses, todos, schedules))
                 .put("synced_at", LocalTime.now().withSecond(0).withNano(0).toString());
         if (revision != SessionStore.revision()) throw new IllegalStateException("登录状态已改变。");
@@ -167,6 +171,33 @@ final class CalendarApi {
         catch (ApiException error) {
             if (error.status != 401) throw error;
             request("/rest/v1/calendar_items", "POST", row, accessToken(context, true));
+        }
+    }
+
+    static synchronized void setTodoDone(Context context, String id, JSONObject original, boolean done) throws Exception {
+        if (SessionStore.session(context) == null) throw new IllegalStateException("请先登录。");
+        if (id == null || id.isEmpty() || original == null) throw new IllegalArgumentException("无法识别事项。");
+        JSONObject item = new JSONObject(original.toString());
+        item.remove("_row_id");
+        item.put("done", done);
+        JSONObject row = new JSONObject().put("id", id).put("payload", item);
+        String token = accessToken(context, false);
+        try { request("/rest/v1/calendar_items", "POST", row, token); }
+        catch (ApiException error) {
+            if (error.status != 401) throw error;
+            request("/rest/v1/calendar_items", "POST", row, accessToken(context, true));
+        }
+    }
+
+    static synchronized void deleteItem(Context context, String id) throws Exception {
+        if (SessionStore.session(context) == null) throw new IllegalStateException("请先登录。");
+        if (id == null || id.isEmpty()) throw new IllegalArgumentException("无法识别事项。");
+        String path = "/rest/v1/calendar_items?id=eq." + URLEncoder.encode(id, "UTF-8");
+        String token = accessToken(context, false);
+        try { request(path, "DELETE", null, token); }
+        catch (ApiException error) {
+            if (error.status != 401) throw error;
+            request(path, "DELETE", null, accessToken(context, true));
         }
     }
 

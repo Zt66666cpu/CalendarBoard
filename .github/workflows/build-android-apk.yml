@@ -39,22 +39,22 @@ jobs:
         run: gradle assembleDebug --no-daemon
 
       - name: Rename APK
-        run: cp android/app/build/outputs/apk/debug/app-debug.apk CalendarBoard-v1.6-debug.apk
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk CalendarBoard-v2.0-debug.apk
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CalendarBoard-v1.6-debug-apk
-          path: CalendarBoard-v1.6-debug.apk
+          name: CalendarBoard-v2.0-debug-apk
+          path: CalendarBoard-v2.0-debug.apk
 
       - name: Publish APK to GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if gh release view v1.6 >/dev/null 2>&1; then
-            gh release upload v1.6 CalendarBoard-v1.6-debug.apk --clobber
+          if gh release view v2.0 >/dev/null 2>&1; then
+            gh release upload v2.0 CalendarBoard-v2.0-debug.apk --clobber
           else
-            gh release create v1.6 CalendarBoard-v1.6-debug.apk \
-              --title "CalendarBoard Android v1.6" \
-              --notes "自动构建的 CalendarBoard 安卓桌面小组件安装包（已配置专属 Supabase 与网页地址）。"
+            gh release create v2.0 CalendarBoard-v2.0-debug.apk \
+              --title "CalendarBoard Android v2.0 (暖米白针织极简风)" \
+              --notes "全新重做的 CalendarBoard 安卓 v2.0：暖米白针织纹理 + 大圆角完整月历 App、直接增删改查与待办勾选、以及暖米白针织桌面小组件。"
           fi

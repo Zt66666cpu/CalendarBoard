@@ -1,62 +1,211 @@
 package com.calendarboard.widget;
 
 import android.app.Activity;
-import android.os.Bundle;
+import android.content.Intent;
 import android.graphics.Color;
-import android.widget.Button;
+import android.graphics.Typeface;
+import android.os.Bundle;
+import android.util.TypedValue;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.Window;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
+
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
-/** Expanded week opened from the compact widget, with no per-day line limit. */
+/** Warm knit 7-day agenda opened from the home screen widget. */
 public final class WeekActivity extends Activity {
-    private int dp(int value) { return (int)(value * getResources().getDisplayMetrics().density + .5f); }
-    private void label(LinearLayout parent, String text, int size, int color) {
-        TextView view = new TextView(this);
-        view.setText(text); view.setTextSize(size); view.setTextColor(color);
-        view.setPadding(0, dp(8), 0, dp(8));
-        parent.addView(view);
-    }
+    private static final int REQ_EDIT = 201;
+
+    private int dp(float v) { return KnitTheme.dp(this, v); }
+
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        Window win = getWindow();
+        if (win != null) {
+            win.setStatusBarColor(KnitTheme.BG_CREAM);
+            win.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
+        }
+        render();
+    }
+
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_EDIT && resultCode == RESULT_OK) render();
+    }
+
+    private void render() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), dp(16), dp(20), dp(12));
-        root.setBackgroundColor(Color.rgb(28, 44, 60));
-        Button close = new Button(this); close.setText("收起七天日程 · 返回桌面");
-        close.setOnClickListener(v -> finish()); root.addView(close);
+        root.setBackground(KnitTheme.knitCanvasBackground(this));
+        root.setPadding(dp(18), dp(16), dp(18), dp(14));
+
+        // Top Bar
+        LinearLayout topBar = new LinearLayout(this);
+        topBar.setOrientation(LinearLayout.HORIZONTAL);
+        topBar.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView title = new TextView(this);
+        title.setText("明天起 7 天安排");
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 21);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(KnitTheme.INK_PRIMARY);
+        topBar.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+
+        TextView close = new TextView(this);
+        close.setText("返回桌面");
+        close.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        close.setTypeface(Typeface.DEFAULT_BOLD);
+        close.setTextColor(KnitTheme.SURFACE_OAT);
+        close.setPadding(dp(16), dp(9), dp(16), dp(9));
+        close.setBackground(KnitTheme.roundedRect(this, KnitTheme.ACCENT_COCOA, Color.TRANSPARENT, 0, 999));
+        close.setOnClickListener(v -> finish());
+        topBar.addView(close);
+        root.addView(topBar);
+
         ScrollView scroll = new ScrollView(this);
-        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
-        LinearLayout content = new LinearLayout(this); content.setOrientation(LinearLayout.VERTICAL);
+        scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        LinearLayout.LayoutParams scrollLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1);
+        scrollLp.topMargin = dp(14);
+        root.addView(scroll, scrollLp);
+
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(0, 0, 0, dp(16));
         scroll.addView(content);
-        label(content, "明天起 7 天日程", 22, Color.WHITE);
-        JSONArray rows = SessionStore.session(this) == null ? null : SessionStore.cache(this).optJSONArray("week_schedules");
-        String[] weekdays = {"周一", "周二", "周三", "周四", "周五", "周六", "周日"};
+
+        boolean loggedIn = SessionStore.session(this) != null;
+        JSONObject cache = SessionStore.cache(this);
+        JSONArray allItems = loggedIn ? cache.optJSONArray("all_items") : null;
+        JSONArray weekRows = loggedIn ? cache.optJSONArray("week_schedules") : null;
+
         for (int offset = 1; offset <= 7; offset++) {
             LocalDate date = LocalDate.now().plusDays(offset);
-            label(content, date.getMonthValue() + "月" + date.getDayOfMonth() + "日 · " + weekdays[date.getDayOfWeek().getValue() - 1], 17, Color.rgb(191,217,244));
+            String dateStr = date.toString();
+
+            LinearLayout dayCard = new LinearLayout(this);
+            dayCard.setOrientation(LinearLayout.VERTICAL);
+            dayCard.setPadding(dp(16), dp(14), dp(16), dp(14));
+            dayCard.setBackground(KnitTheme.knitCard(this, KnitTheme.SURFACE_OAT, KnitTheme.BORDER_LINEN, 22, true));
+            LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            if (offset > 1) cardLp.topMargin = dp(11);
+
+            LinearLayout dayHeader = new LinearLayout(this);
+            dayHeader.setOrientation(LinearLayout.HORIZONTAL);
+            dayHeader.setGravity(Gravity.CENTER_VERTICAL);
+
+            TextView dayTitle = new TextView(this);
+            dayTitle.setText(CalendarUtils.shortDateHeading(date));
+            dayTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+            dayTitle.setTypeface(Typeface.DEFAULT_BOLD);
+            dayTitle.setTextColor(KnitTheme.INK_PRIMARY);
+            dayHeader.addView(dayTitle, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+
+            String weekLbl = CalendarUtils.semesterWeekShort(date);
+            if (!weekLbl.isEmpty()) {
+                TextView badge = new TextView(this);
+                badge.setText(weekLbl);
+                badge.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+                badge.setTextColor(KnitTheme.INK_SECONDARY);
+                badge.setPadding(dp(9), dp(3), dp(9), dp(3));
+                badge.setBackground(KnitTheme.roundedRect(this, KnitTheme.SURFACE_SAND, KnitTheme.BORDER_LINEN, 1, 999));
+                dayHeader.addView(badge);
+            }
+            dayCard.addView(dayHeader);
+
             List<JSONObject> entries = new ArrayList<>();
-            if (rows != null) for (int i = 0; i < rows.length(); i++) {
-                JSONObject row = rows.optJSONObject(i);
-                JSONObject item = row == null ? null : row.optJSONObject("payload");
-                if (item != null && "日程".equals(item.optString("type")) && date.toString().equals(item.optString("date"))) entries.add(item);
+            if (allItems != null) {
+                for (int i = 0; i < allItems.length(); i++) {
+                    JSONObject item = allItems.optJSONObject(i);
+                    if (item == null) continue;
+                    if (dateStr.equals(item.optString("date")) && !item.optBoolean("done")) entries.add(item);
+                }
+            } else if (weekRows != null) {
+                for (int i = 0; i < weekRows.length(); i++) {
+                    JSONObject row = weekRows.optJSONObject(i);
+                    JSONObject item = row == null ? null : row.optJSONObject("payload");
+                    if (item != null && dateStr.equals(item.optString("date"))) entries.add(item);
+                }
             }
-            entries.sort(Comparator.comparing(e -> e.optString("time")));
-            if (entries.isEmpty()) label(content, rows == null ? "请返回小组件点 ↻ 同步" : "暂无日程", 14, Color.LTGRAY);
-            for (JSONObject item : entries) {
-                String time = item.optString("time");
-                String place = item.optString("place", item.optString("room"));
-                label(content, "• " + (time.isEmpty() ? "" : time + "  ") + item.optString("title")
-                        + (place.isEmpty() ? "" : "\n场地：" + place), 16, Color.WHITE);
+            entries.sort(Comparator.comparing(e -> e.optString("time", "")));
+
+            if (entries.isEmpty()) {
+                TextView empty = new TextView(this);
+                empty.setText(loggedIn ? "暂无安排" : "请先登录并同步");
+                empty.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+                empty.setTextColor(KnitTheme.INK_MUTED);
+                empty.setPadding(0, dp(8), 0, dp(2));
+                dayCard.addView(empty);
+            } else {
+                for (JSONObject item : entries) {
+                    dayCard.addView(buildItemRow(item));
+                }
             }
+            content.addView(dayCard, cardLp);
         }
+
         setContentView(root);
     }
-}
 
+    private View buildItemRow(JSONObject item) {
+        String type = item.optString("type", "日程");
+        int yarn = KnitTheme.colorForType(type);
+        int tint = KnitTheme.tintForType(type);
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(12), dp(10), dp(12), dp(10));
+        row.setBackground(KnitTheme.roundedRect(this, tint, Color.TRANSPARENT, 0, 15));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(8);
+        row.setLayoutParams(lp);
+
+        View dot = new View(this);
+        dot.setBackground(KnitTheme.circle(this, yarn, Color.TRANSPARENT, 0));
+        LinearLayout.LayoutParams dotLp = new LinearLayout.LayoutParams(dp(8), dp(8));
+        dotLp.rightMargin = dp(10);
+        row.addView(dot, dotLp);
+
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+
+        TextView title = new TextView(this);
+        title.setText(item.optString("title", "未命名"));
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(KnitTheme.INK_PRIMARY);
+        col.addView(title);
+
+        String time = item.optString("time", "");
+        String place = item.optString("place", item.optString("room", ""));
+        StringBuilder meta = new StringBuilder(type);
+        if (!time.isEmpty()) meta.append(" · ").append(time);
+        if (!place.isEmpty()) meta.append(" · ").append(place);
+
+        TextView sub = new TextView(this);
+        sub.setText(meta.toString());
+        sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        sub.setTextColor(KnitTheme.INK_SECONDARY);
+        sub.setPadding(0, dp(2), 0, 0);
+        col.addView(sub);
+
+        row.addView(col, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+
+        row.setOnClickListener(v -> {
+            Intent intent = new Intent(this, QuickAddActivity.class);
+            intent.putExtra(QuickAddActivity.EXTRA_ITEM_JSON, item.toString());
+            startActivityForResult(intent, REQ_EDIT);
+        });
+        return row;
+    }
+}
