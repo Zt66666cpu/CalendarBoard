@@ -1,0 +1,9 @@
+.gradle/
+.toolchain/
+**/build/
+local.properties
+*.jks
+*.keystore
+sync-session.dat
+sync-config.json
+sync-base.json

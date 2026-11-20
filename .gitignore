@@ -1,0 +1,10 @@
+.DS_Store
+# Private timetable data stays local & in RLS-protected Supabase
+data/
+# Compiled macOS app bundle (rebuild via macos-widget/build.sh)
+macos-widget/CalendarBoard.app/
+# Android build artifacts
+android/.gradle/
+android/local.properties
+android/app/build/
+android/build/

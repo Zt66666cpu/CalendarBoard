@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CalendarBoard</title>
+  <link rel="stylesheet" href="widget.css">
+</head>
+<body>
+  <!-- Ultra-slim edge handle when tucked to right screen edge -->
+  <div id="peekStrip" class="peek-strip hidden" title="移入或点击滑出课表日历">
+    <span class="peek-chevron">‹</span>
+    <span class="peek-bar"></span>
+  </div>
+
+  <div id="shell" class="shell collapsed">
+    <!-- Left panel: Full Monthly Calendar (visible when expanded) -->
+    <section class="calendar-pane" aria-label="月历视图">
+      <header class="cal-header">
+        <div>
+          <p class="eyebrow">CALENDAR BOARD · LIQUID GLASS</p>
+          <h2 id="monthTitle">2026年11月</h2>
+        </div>
+        <div class="cal-actions">
+          <button id="prevMonth" class="ghost-btn icon-only" type="button" title="上个月">‹</button>
+          <button id="todayBtn" class="ghost-btn" type="button">今天</button>
+          <button id="nextMonth" class="ghost-btn icon-only" type="button" title="下个月">›</button>
+          <button id="quickAddTop" class="primary-btn" type="button">＋ 新增事项</button>
+        </div>
+      </header>
+
+      <div class="weekdays" aria-hidden="true">
+        <span>周一</span><span>周二</span><span>周三</span><span>周四</span><span>周五</span><span>周六</span><span>周日</span>
+      </div>
+
+      <div id="monthGrid" class="month-grid"></div>
+    </section>
+
+    <!-- Right panel: Today Sidebar -->
+    <aside class="sidebar-pane" aria-label="今日侧栏">
+      <div class="sidebar-toolbar">
+        <div class="toolbar-left">
+          <button id="expandToggle" class="pill-btn" type="button" title="展开/收起月历">
+            <span id="expandIcon">‹</span>
+            <span id="expandLabel">月历</span>
+          </button>
+          <button id="modeQuickToggle" class="pill-btn" type="button" title="快速切换：自动吸边隐藏 / 贴近桌面底层">自动隐藏</button>
+        </div>
+        <div class="toolbar-right">
+          <button id="pinBtn" class="icon-btn" type="button" title="固定展开（不自动收起）">📌</button>
+          <button id="peekNowBtn" class="icon-btn" type="button" title="立即收起到右边缘">⇥</button>
+          <button id="syncBtn" class="icon-btn" type="button" title="立即同步">↻</button>
+          <button id="settingsBtn" class="icon-btn" type="button" title="设置与云端账号">⚙</button>
+        </div>
+      </div>
+
+      <div class="clock-block">
+        <div class="clock-row">
+          <div id="clockTime" class="clock-time">--:--</div>
+          <span id="modeBadge" class="mode-badge demo">演示模式</span>
+        </div>
+        <div id="selectedTitle" class="selected-title">11月20日 · 周五</div>
+        <div id="selectedSubtitle" class="selected-sub">点「＋」给这天添加事项</div>
+      </div>
+
+      <div class="view-tabs" role="tablist">
+        <button id="tabDay" class="tab-btn active" type="button" role="tab">当天安排</button>
+        <button id="tabWeek" class="tab-btn" type="button" role="tab">未来 7 天日程</button>
+      </div>
+
+      <div id="dayView" class="sidebar-scroll">
+        <section class="cat-group" data-type="课程">
+          <div class="cat-header">
+            <div class="cat-title"><span class="cat-dot course"></span>课程<span id="countCourse" class="cat-count">0</span></div>
+            <button class="add-mini" type="button" data-add-type="课程" title="添加课程">＋</button>
+          </div>
+          <div id="listCourse" class="cat-list"></div>
+        </section>
+
+        <section class="cat-group" data-type="待办">
+          <div class="cat-header">
+            <div class="cat-title"><span class="cat-dot todo"></span>待办<span id="countTodo" class="cat-count">0</span></div>
+            <button class="add-mini" type="button" data-add-type="待办" title="添加待办">＋</button>
+          </div>
+          <div id="listTodo" class="cat-list"></div>
+        </section>
+
+        <section class="cat-group" data-type="日程">
+          <div class="cat-header">
+            <div class="cat-title"><span class="cat-dot schedule"></span>日程<span id="countSchedule" class="cat-count">0</span></div>
+            <button class="add-mini" type="button" data-add-type="日程" title="添加日程">＋</button>
+          </div>
+          <div id="listSchedule" class="cat-list"></div>
+        </section>
+      </div>
+
+      <div id="weekView" class="sidebar-scroll hidden"></div>
+
+      <footer class="sidebar-footer">
+        <span id="statusText" class="status-text">演示模式 · 移开鼠标自动收缩到右边缘</span>
+        <button id="connectBannerBtn" class="link-btn" type="button">连接云端</button>
+      </footer>
+    </aside>
+  </div>
+
+  <!-- Add / Edit Entry Modal -->
+  <div id="entryBackdrop" class="modal-backdrop hidden">
+    <div class="modal-card" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <h3 id="entryModalTitle">新增事项</h3>
+        <button id="closeEntryModal" class="icon-btn" type="button">✕</button>
+      </div>
+      <form id="entryForm" class="form-stack">
+        <div class="form-row-2">
+          <label>
+            类别
+            <select id="entryType">
+              <option value="课程">课程</option>
+              <option value="待办">待办</option>
+              <option value="日程">日程</option>
+            </select>
+          </label>
+          <label>
+            日期
+            <input id="entryDate" type="date" required>
+          </label>
+        </div>
+        <label>
+          内容
+          <textarea id="entryTitle" rows="2" maxlength="1000" placeholder="例如：数据结构与算法 / 完成实验报告" required></textarea>
+        </label>
+        <div class="form-row-2">
+          <label>
+            开始时间
+            <input id="entryStart" type="time">
+          </label>
+          <label>
+            结束时间
+            <input id="entryEnd" type="time">
+          </label>
+        </div>
+        <label>
+          场地 / 教室
+          <input id="entryPlace" type="text" maxlength="200" placeholder="可留空，如 品学楼B308">
+        </label>
+        <div class="modal-actions">
+          <button id="deleteEntryBtn" class="danger-btn hidden" type="button">删除</button>
+          <div class="spacer"></div>
+          <button id="cancelEntryBtn" class="ghost-btn" type="button">取消</button>
+          <button class="primary-btn" type="submit">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Settings & Cloud Sync Modal -->
+  <div id="settingsBackdrop" class="modal-backdrop hidden">
+    <div class="modal-card" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <h3>设置与云端同步</h3>
+        <button id="closeSettingsModal" class="icon-btn" type="button">✕</button>
+      </div>
+
+      <div class="settings-section">
+        <div class="section-label">窗口显示与隐藏模式</div>
+        <div class="segmented cols-4" id="dockModeSegmented">
+          <button type="button" data-mode="autoHide">自动隐藏</button>
+          <button type="button" data-mode="desktop">贴近桌面</button>
+          <button type="button" data-mode="normal">普通窗口</button>
+          <button type="button" data-mode="floating">置顶悬浮</button>
+        </div>
+        <label class="toggle-row" style="margin-top:10px;">
+          <span>鼠标悬停自动滑出完整月历</span>
+          <input id="hoverExpandToggle" type="checkbox" checked>
+        </label>
+        <div class="section-label" style="margin-top:10px;">Apple Liquid Glass 液态玻璃质感</div>
+        <div class="segmented cols-2" id="glassStyleSegmented">
+          <button type="button" data-glass="regular">标准液态玻璃（清晰易读）</button>
+          <button type="button" data-glass="clear">极致通透玻璃</button>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="section-label">Supabase 云端连接（与网页版 / 安卓同步）</div>
+        <form id="cloudConfigForm" class="form-stack compact">
+          <label>
+            项目 URL
+            <input id="cfgUrl" type="url" placeholder="https://xxxxx.supabase.co" autocomplete="off">
+          </label>
+          <label>
+            Publishable Key（以 sb_publishable_ 开头）
+            <input id="cfgKey" type="text" placeholder="sb_publishable_..." autocomplete="off">
+          </label>
+          <div class="form-row-2">
+            <label>
+              日历账号邮箱
+              <input id="authEmail" type="email" placeholder="you@example.com">
+            </label>
+            <label>
+              密码
+              <input id="authPassword" type="password" placeholder="至少 6 位">
+            </label>
+          </div>
+          <div id="settingsMsg" class="settings-msg"></div>
+          <div class="modal-actions">
+            <button id="useDemoBtn" class="ghost-btn" type="button">切换演示模式</button>
+            <div class="spacer"></div>
+            <button id="signupBtn" class="ghost-btn" type="button">注册</button>
+            <button id="loginBtn" class="primary-btn" type="submit">保存并登录</button>
+          </div>
+          <div id="loggedInRow" class="logged-in-row hidden">
+            <span id="loggedInUser">已登录云端账号</span>
+            <button id="logoutBtn" class="danger-btn" type="button">退出登录</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script src="widget.js"></script>
+</body>
+</html>

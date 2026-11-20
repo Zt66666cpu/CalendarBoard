@@ -1,0 +1,46 @@
+课表日历源码分享包（2026-11-20）
+
+先看这里
+本包是供室友独立搭建、学习和修改的源码，不是双击就能安装的程序。
+安卓源码对应 v1.6：今天的课程/待办/日程完整文字展示，底部可打开未来七天日程。
+桌面小组件空间由手机桌面决定，内容较多需要拉高组件。
+
+目录
+android：原生安卓应用与桌面小组件源码。
+web：网页日历，可在 Mac、Windows 和安卓浏览器中使用。
+backend/schema.sql：Supabase 数据表和每个用户仅能读写本人数据的规则。
+windows-rainmeter：Windows 雨滴日历源码参考，附空白数据，不适用于 macOS。
+
+Mac 与安卓怎么用
+1. Mac 上可以直接用浏览器打开部署后的 web 日历。
+2. 安卓桌面小组件由 android 源码编译安装。
+3. 目前没有原生 macOS 桌面组件。要得到类似 Windows 桌面侧栏，需要另做 Mac 版本。
+
+独立搭建步骤
+1. 自己创建 Supabase 项目，保存数据库密码。
+2. 在项目的 SQL Editor 执行 backend/schema.sql。保持行级安全（RLS）开启。
+3. 从项目 API Keys 获取 publishable key；不要将 secret/service_role key 填入客户端。
+4. 修改 web/app.js 顶部 defaultConfig：填自己的项目 URL 和 publishable key。
+5. 将 web 目录里的三个文件部署到自己的静态网站（例如 GitHub Pages）。
+6. 在 Supabase Authentication 的 URL Configuration 中，把 Site URL 和允许的回跳地址设为自己的网页完整地址（包括仓库路径）。保留邮箱验证，并通过邮件确认注册。
+7. 修改 android/app/src/main/java/com/calendarboard/widget/CalendarApi.java 的 BASE、KEY，填同一个项目的 URL 和 publishable key。
+8. 修改同目录 MainActivity.java 的 WEBSITE，填自己的网页日历地址。
+9. 两端注册并使用同一个日历账号，即可共享自己的课程、待办和日程。
+
+在 Mac 上编译 Android
+安装官方 Android Studio，打开本包 android 文件夹。使用 JDK 17，按提示安装 Android SDK Platform 35 和所需 Build Tools，等待 Gradle 同步。
+项目使用 Android Gradle Plugin 8.13.2；若本机没有适配 Gradle，请使用 Gradle 8.13（或按该插件官方兼容要求配置）。本包没有附带 Gradle Wrapper 或大型 SDK。
+使用 Build 菜单的 APK 构建功能生成测试安装包；输出一般为 app/build/outputs/apk/debug/app-debug.apk。
+测试包使用室友本机的签名，不能直接覆盖原作者签名的 APK。若提示签名冲突，可先导出/确认云端数据，再卸载原应用；或者修改 applicationId 后作为另一个应用安装。
+发布长期自用版本时请自己生成并妥善保存签名密钥。
+
+Windows 雨滴（仅作参考）
+将 windows-rainmeter 文件夹放到 Rainmeter 的 Skins 目录，重命名为 CalendarBoard。
+数据已清空。先加载 Calendar.ini 查看空日历，再在 @Resources 中运行 SetupSync.ps1 配置自己的 Supabase URL、publishable key 和账号。
+PowerShell 与 Rainmeter 的路径和环境按本机调整。这部分未经 macOS 适配。
+
+隐私与限制
+已去除原作者的日程、课程数据、账号、会话、同步状态、原项目 URL/API key、个人网站地址和签名密钥。
+不包含 node_modules、Android SDK、JDK、编译产物或历史备份。
+源码中的 YOUR_PROJECT、YOUR_USERNAME、YOUR_REPOSITORY、REPLACE_WITH_YOUR_KEY 都必须替换。
+本包包含现有实现及说明，尚未在室友的 Mac/安卓设备上验证。
