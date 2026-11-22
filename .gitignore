@@ -8,3 +8,10 @@ android/.gradle/
 android/local.properties
 android/app/build/
 android/build/
+
+# Cloud data backups
+backups/
+# Generated / copied shared core & SwiftPM build dir
+macos-widget/ui/core.js
+macos-widget/.build/
+WORKER_RULES.md
