@@ -36,6 +36,15 @@ h3{font-size:1rem}
 .item-main{flex:1;min-width:0}.item-title{font-weight:600;overflow-wrap:anywhere}.item-meta{font-size:.78rem;color:#c5d4df;margin-top:4px;overflow-wrap:anywhere}
 .item-actions{display:flex;gap:4px}.item-actions button{font-size:.82rem;padding:6px 8px;white-space:nowrap}
 .status{min-height:24px;color:#cdd8e0;font-size:.83rem;padding:3px}.status.error{color:#ffb3b3}
+.bottom-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:8px}
+.item.muted,.item.recent-done{opacity:.55}
+.item.recent-done .item-title{text-decoration:line-through}
+.group-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.review-panel{margin-bottom:18px;border-color:rgba(246,217,154,.4)}
+.archive-header,.archive-filters,.archive-footer{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.archive-tag{font-size:.75rem;padding:2px 7px;border-radius:999px;background:rgba(255,255,255,.14)}
+.link-inline{background:none;border:none;color:#9bd5ff;text-decoration:underline;padding:0 4px;cursor:pointer}
+.item-actions input[type="date"]{font-size:.75rem;padding:5px 6px;border:1px solid rgba(255,255,255,.2);border-radius:9px;background:rgba(17,30,43,.7);color:#fff;max-width:132px}
 dialog{border:1px solid rgba(255,255,255,.2);border-radius:20px;padding:24px;background:#2c3948;color:white;width:min(520px,calc(100vw - 28px));max-height:calc(100vh - 30px);overflow:auto;box-shadow:0 30px 100px rgba(0,0,0,.45)}
 dialog::backdrop{background:rgba(0,0,0,.62);backdrop-filter:blur(4px)}.time-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 [hidden]{display:none!important}

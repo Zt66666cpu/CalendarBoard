@@ -49,10 +49,15 @@
 
       <section class="day-section">
         <div class="day-heading"><div><h2 id="dayTitle"></h2></div><button id="addButton" class="primary" type="button">＋ 添加</button></div>
+        <section id="reviewSection" class="panel review-panel" hidden></section>
         <div id="dayItems"></div>
       </section>
     </div>
-    <p id="status" class="status" role="status" aria-live="polite"></p>
+    <section id="archivePanel" class="panel" hidden></section>
+    <footer class="bottom-bar">
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+      <button id="archiveButton" type="button" hidden>归档</button>
+    </footer>
   </main>
 
   <dialog id="entryDialog">
