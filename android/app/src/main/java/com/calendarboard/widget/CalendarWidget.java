@@ -67,6 +67,7 @@ public final class CalendarWidget extends AppWidgetProvider {
     }
 
     static void renderAll(Context context) {
+        KnitTheme.load(context);
         AppWidgetManager manager = AppWidgetManager.getInstance(context);
         ComponentName component = new ComponentName(context, CalendarWidget.class);
         int[] ids = manager.getAppWidgetIds(component);

@@ -29,6 +29,7 @@ public final class WeekActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        KnitTheme.load(this);
         Window win = getWindow();
         if (win != null) {
             win.setStatusBarColor(KnitTheme.BG_CREAM);
