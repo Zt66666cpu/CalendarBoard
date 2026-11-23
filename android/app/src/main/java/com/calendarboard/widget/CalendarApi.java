@@ -173,6 +173,7 @@ final class CalendarApi {
         if (revision != SessionStore.revision()) throw new IllegalStateException("登录状态已改变。");
         SessionStore.saveCache(context, data);
         Repo.get().onCacheSaved(data);
+        ReminderScheduler.rescheduleAll(context);
         return data;
     }
 

@@ -3,6 +3,8 @@ package com.calendarboard.widget;
 import android.app.AlertDialog;
 import android.app.DatePickerDialog;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -159,6 +161,19 @@ public final class MainActivity extends AppCompatActivity implements Repo.Listen
         super.onDestroy();
     }
 
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        if (intent == null) return;
+        setIntent(intent);
+        if (intent.getBooleanExtra(EXTRA_OPEN_REVIEW, false)) {
+            if (loggedIn) {
+                openReview();
+            } else {
+                pendingOpenReview = true;
+            }
+        }
+    }
+
     @Override public void onRepoChanged(Repo.Snapshot snapshot) {
         if (snapshot == null) return;
         if (snapshot.loggedIn != loggedIn) {
@@ -298,6 +313,8 @@ public final class MainActivity extends AppCompatActivity implements Repo.Listen
                     if (requestGeneration != generation || isFinishing()) return;
                     if (!loggedIn) showHome();
                     else renderFromSnapshot(Repo.get().snapshot());
+                    ReminderScheduler.rescheduleAll(this);
+                    requestNotificationPermissionIfNeeded();
                 });
             } catch (Exception error) {
                 runOnUiThread(() -> {
@@ -307,6 +324,18 @@ public final class MainActivity extends AppCompatActivity implements Repo.Listen
                 });
             }
         });
+    }
+
+    private void requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < 33) return;
+        if (checkSelfPermission("android.permission.POST_NOTIFICATIONS")
+                == PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+        SharedPreferences prefs = getSharedPreferences(Notifier.PREFS, MODE_PRIVATE);
+        if (prefs.getBoolean("post_notifications_requested", false)) return;
+        prefs.edit().putBoolean("post_notifications_requested", true).apply();
+        requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 1001);
     }
 
     // ==================== Main screen ====================
@@ -1491,7 +1520,8 @@ public final class MainActivity extends AppCompatActivity implements Repo.Listen
         menu.getMenu().add(0, 3, 2, "学期设置");
         menu.getMenu().add(0, 4, 3, "打开网页版日历");
         menu.getMenu().add(0, 5, 4, "刷新桌面小组件");
-        menu.getMenu().add(0, 6, 5, "退出登录");
+        menu.getMenu().add(0, 7, 5, "提醒与自检");
+        menu.getMenu().add(0, 6, 6, "退出登录");
         menu.setOnMenuItemClickListener(item -> {
             if (item.getItemId() == 1) {
                 openReview();
@@ -1516,6 +1546,10 @@ public final class MainActivity extends AppCompatActivity implements Repo.Listen
             }
             if (item.getItemId() == 6) {
                 logout();
+                return true;
+            }
+            if (item.getItemId() == 7) {
+                startActivity(new Intent(this, DiagnosticsActivity.class));
                 return true;
             }
             return false;
