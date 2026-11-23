@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/nextClassRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center_vertical"
+    android:paddingLeft="13dp"
+    android:paddingRight="13dp"
+    android:paddingTop="9dp"
+    android:paddingBottom="9dp"
+    android:background="@drawable/widget_bg">
+
+    <TextView
+        android:id="@+id/nextTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:singleLine="true"
+        android:ellipsize="end"
+        android:text="下一节课"
+        android:textSize="15sp"
+        android:textStyle="bold"
+        android:textColor="@color/ink_primary" />
+
+    <TextView
+        android:id="@+id/nextMeta"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingTop="2dp"
+        android:singleLine="true"
+        android:ellipsize="end"
+        android:text="正在同步"
+        android:textSize="11sp"
+        android:textColor="@color/yarn_course" />
+
+    <TextView
+        android:id="@+id/nextPlace"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingTop="1dp"
+        android:singleLine="true"
+        android:ellipsize="end"
+        android:textSize="10sp"
+        android:textColor="@color/ink_muted" />
+</LinearLayout>

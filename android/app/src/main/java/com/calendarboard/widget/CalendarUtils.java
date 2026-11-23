@@ -41,7 +41,11 @@ final class CalendarUtils {
     }
 
     static String semesterWeekFull(Context context, LocalDate date) {
-        JSONObject settings = meta(context);
+        return semesterWeekFull(meta(context), date);
+    }
+
+    static String semesterWeekFull(JSONObject meta, LocalDate date) {
+        JSONObject settings = meta == null ? Items.defaultMeta() : meta;
         String week = Items.termWeekLabel(settings, date);
         if (week.isEmpty()) return "";
         String name = settings.optString("termName", "2026秋").trim();
@@ -51,12 +55,7 @@ final class CalendarUtils {
 
     /** Fallback for callers without a context; uses the built-in default semester. */
     static String semesterWeekFull(LocalDate date) {
-        JSONObject settings = Items.defaultMeta();
-        String week = Items.termWeekLabel(settings, date);
-        if (week.isEmpty()) return "";
-        String name = settings.optString("termName", "2026秋").trim();
-        if (name.isEmpty()) name = "2026秋";
-        return name + " " + week;
+        return semesterWeekFull(Items.defaultMeta(), date);
     }
 
     /** Concise solar holiday label for calendar cells. */

@@ -133,6 +133,18 @@ public final class ReminderReceiver extends BroadcastReceiver {
         }
 
         ReminderScheduler.rescheduleAll(context);
+
+        boolean refreshIsland = ACTION_ISLAND.equals(action)
+                || Intent.ACTION_USER_PRESENT.equals(action)
+                || Intent.ACTION_TIME_CHANGED.equals(action)
+                || Intent.ACTION_TIMEZONE_CHANGED.equals(action)
+                || Intent.ACTION_DATE_CHANGED.equals(action);
+        if (refreshIsland) {
+            JSONObject latest = SessionStore.cache(context);
+            Notifier.updateCourseIsland(context, latest);
+            NextClassWidget.renderAll(context);
+            CalendarWidget.renderAll(context);
+        }
     }
 
     private static JSONObject rebuildForToday(Context context, JSONObject cache, String today) {

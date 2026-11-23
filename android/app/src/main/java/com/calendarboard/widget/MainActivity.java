@@ -70,11 +70,13 @@ public final class MainActivity extends AppCompatActivity implements Repo.Listen
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Handler minuteHandler = new Handler(Looper.getMainLooper());
-    private final Runnable minuteTick = () -> {
-        if (!loggedIn || !started) return;
-        updateHeaderLabels();
-        submitAgendaRows();
-        minuteHandler.postDelayed(minuteTick, MINUTE_MS);
+    private final Runnable minuteTick = new Runnable() {
+        @Override public void run() {
+            if (!loggedIn || !started) return;
+            updateHeaderLabels();
+            submitAgendaRows();
+            minuteHandler.postDelayed(this, MINUTE_MS);
+        }
     };
 
     private final YearMonth anchorMonth = YearMonth.now();

@@ -14,6 +14,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -571,7 +572,7 @@ public final class QuickAddSheet extends BottomSheetDialogFragment {
         super.onStart();
         Dialog dialog = getDialog();
         if (dialog instanceof BottomSheetDialog) {
-            BottomSheetBehavior<View> behavior = ((BottomSheetDialog) dialog).getBehavior();
+            BottomSheetBehavior<FrameLayout> behavior = ((BottomSheetDialog) dialog).getBehavior();
             behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
             behavior.setSkipCollapsed(true);
         }

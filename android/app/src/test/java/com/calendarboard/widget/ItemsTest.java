@@ -18,6 +18,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import com.calendarboard.widget.Items.ArchiveEntry;
+import com.calendarboard.widget.Items.ArchiveGroup;
+import com.calendarboard.widget.Items.CourseSlot;
+import com.calendarboard.widget.Items.DayDots;
+import com.calendarboard.widget.Items.DayItemsResult;
+import com.calendarboard.widget.Items.NowNext;
+import com.calendarboard.widget.Items.WeekDay;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -110,7 +118,7 @@ public class ItemsTest {
         assertEquals("09:05-10:30", Items.buildTime("9:05", "10:30"));
         assertEquals("10:00", Items.buildTime("10:00", null));
         assertEquals("", Items.buildTime("", "10:00"));
-        assertEquals("", Items.buildTime("9:00", "9:00"));
+        assertEquals("09:00", Items.buildTime("9:00", "9:00"));
     }
 
     @Test

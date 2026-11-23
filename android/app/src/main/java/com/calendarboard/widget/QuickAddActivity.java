@@ -1,8 +1,17 @@
 package com.calendarboard.widget;
 
+import android.content.ComponentName;
+import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 
 import androidx.appcompat.app.AppCompatActivity;
+
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 
 /**
  * Transparent host activity that immediately opens the quick-add bottom sheet. Keeping the
@@ -22,10 +31,45 @@ public final class QuickAddActivity extends AppCompatActivity {
         }
         if (state != null) return;
 
-        String date = getIntent().getStringExtra(EXTRA_DATE);
-        String type = getIntent().getStringExtra(EXTRA_TYPE);
-        String itemJson = getIntent().getStringExtra(EXTRA_ITEM_JSON);
+        Intent intent = getIntent();
+        String date = sanitizeDate(intent.getStringExtra(EXTRA_DATE));
+        String type = sanitizeType(intent.getStringExtra(EXTRA_TYPE));
+        String itemJson = sanitizeItemJson(intent.getStringExtra(EXTRA_ITEM_JSON));
         QuickAddSheet.newInstance(date, type, itemJson)
                 .show(getSupportFragmentManager(), "QuickAddSheet");
+    }
+
+    private static String sanitizeDate(String value) {
+        if (value == null || !value.matches("\\d{4}-\\d{2}-\\d{2}")) return null;
+        try {
+            LocalDate.parse(value);
+            return value;
+        } catch (DateTimeParseException error) {
+            return null;
+        }
+    }
+
+    private static String sanitizeType(String value) {
+        if ("待办".equals(value) || "课程".equals(value) || "日程".equals(value)) return value;
+        return "日程";
+    }
+
+    private String sanitizeItemJson(String value) {
+        if (value == null || value.isEmpty() || !isTrustedItemSource()) return null;
+        try {
+            new JSONObject(value);
+            return value;
+        } catch (JSONException error) {
+            return null;
+        }
+    }
+
+    private boolean isTrustedItemSource() {
+        ComponentName caller = getCallingActivity();
+        if (caller != null && getPackageName().equals(caller.getPackageName())) return true;
+        Uri referrer = getReferrer();
+        return referrer != null
+                && "android-app".equals(referrer.getScheme())
+                && getPackageName().equals(referrer.getHost());
     }
 }

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="shortcut_add_todo">添加待办</string>
+    <string name="shortcut_add_schedule">添加日程</string>
+</resources>

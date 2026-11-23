@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="add_todo"
+        android:enabled="true"
+        android:icon="@drawable/ic_check"
+        android:shortcutShortLabel="@string/shortcut_add_todo"
+        android:shortcutLongLabel="@string/shortcut_add_todo">
+        <intent
+            android:action="com.calendarboard.widget.ACTION_QUICK_ADD"
+            android:targetPackage="com.calendarboard.widget"
+            android:targetClass="com.calendarboard.widget.QuickAddActivity">
+            <extra
+                android:name="extra_type"
+                android:value="待办" />
+        </intent>
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="add_schedule"
+        android:enabled="true"
+        android:icon="@drawable/ic_add"
+        android:shortcutShortLabel="@string/shortcut_add_schedule"
+        android:shortcutLongLabel="@string/shortcut_add_schedule">
+        <intent
+            android:action="com.calendarboard.widget.ACTION_QUICK_ADD"
+            android:targetPackage="com.calendarboard.widget"
+            android:targetClass="com.calendarboard.widget.QuickAddActivity">
+            <extra
+                android:name="extra_type"
+                android:value="日程" />
+        </intent>
+    </shortcut>
+</shortcuts>

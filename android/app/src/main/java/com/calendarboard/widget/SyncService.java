@@ -12,7 +12,9 @@ public final class SyncService extends JobService {
             } catch (Exception error) {
                 Log.w("CalendarBoard", "Widget sync failed: " + error.getClass().getSimpleName());
             } finally {
+                NextClassWidget.renderAll(this);
                 CalendarWidget.renderAll(this);
+                Notifier.updateCourseIsland(this, SessionStore.cache(this));
                 jobFinished(params, false);
             }
         }, "calendar-widget-sync").start();

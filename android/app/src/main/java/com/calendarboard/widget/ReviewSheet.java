@@ -12,6 +12,7 @@ import android.view.HapticFeedbackConstants;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -110,7 +111,7 @@ public final class ReviewSheet extends BottomSheetDialogFragment implements Repo
         super.onStart();
         Dialog dialog = getDialog();
         if (dialog instanceof BottomSheetDialog) {
-            BottomSheetBehavior<View> behavior = ((BottomSheetDialog) dialog).getBehavior();
+            BottomSheetBehavior<FrameLayout> behavior = ((BottomSheetDialog) dialog).getBehavior();
             behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
             behavior.setSkipCollapsed(true);
         }

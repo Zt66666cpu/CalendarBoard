@@ -6,6 +6,7 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.os.Build;
 import android.util.Log;
 
 import androidx.core.app.NotificationCompat;
@@ -15,6 +16,8 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -38,10 +41,12 @@ final class Notifier {
     static final String KEY_MORNING_SENT_DATE = "morning_sent_date";
     static final String KEY_LAST_REVIEW_PROMPT_DATE = "last_review_prompt_date";
     static final String KEY_AHEAD_SENT_PREFIX = "ahead_sent_";
+    static final String KEY_ISLAND_ENABLED = "island_enabled";
 
     private static final int ID_MORNING = 1001;
     private static final int ID_TODO = 2001;
     private static final int ID_REVIEW = 3001;
+    private static final int ID_ISLAND = 4001;
     private static final int ID_TEST_MORNING = 9001;
     private static final int ID_TEST_TODO = 9002;
     private static final int ID_TEST_AHEAD = 9003;
@@ -82,6 +87,159 @@ final class Notifier {
 
     private static SharedPreferences prefs(Context context) {
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+    }
+
+    static boolean isIslandEnabled(Context context) {
+        return context != null && prefs(context).getBoolean(KEY_ISLAND_ENABLED, true);
+    }
+
+    static void setIslandEnabled(Context context, boolean enabled) {
+        if (context == null) return;
+        prefs(context).edit().putBoolean(KEY_ISLAND_ENABLED, enabled).apply();
+        if (!enabled) cancelCourseIsland(context);
+    }
+
+    static boolean canPostPromoted(Context context) {
+        if (context == null || Build.VERSION.SDK_INT < 36) return false;
+        NotificationManager manager = context.getSystemService(NotificationManager.class);
+        return manager != null && manager.canPostPromotedNotifications();
+    }
+
+    static void cancelCourseIsland(Context context) {
+        if (context == null) return;
+        NotificationManagerCompat.from(context).cancel(ID_ISLAND);
+    }
+
+    /**
+     * Keeps one Live Updates course island in sync with the cached timetable. Before a course it
+     * shows a system countdown; while a timed course runs it shows progress; afterwards it either
+     * moves to the next course inside the 30 minute lead window or disappears.
+     */
+    static void updateCourseIsland(Context context, JSONObject cache) {
+        if (context == null) return;
+        if (!isIslandEnabled(context)) {
+            cancelCourseIsland(context);
+            return;
+        }
+        ensureChannels(context);
+
+        String today = LocalDate.now().toString();
+        LocalTime nowTime = LocalTime.now();
+        int now = nowTime.getHour() * 60 + nowTime.getMinute();
+        List<JSONObject> courses = new ArrayList<>();
+        for (JSONObject item : allItems(cache)) {
+            if (item == null || !"课程".equals(item.optString("type", ""))) continue;
+            if (!today.equals(item.optString("date", ""))) continue;
+            if (Items.itemStart(item) == null) continue;
+            courses.add(item);
+        }
+        courses.sort(Items.BY_TIME);
+
+        JSONObject active = null;
+        for (JSONObject course : courses) {
+            Integer start = Items.itemStart(course);
+            Integer end = Items.itemEnd(course);
+            if (start != null && end != null && start <= now && now < end) {
+                active = course;
+                break;
+            }
+        }
+
+        if (active != null) {
+            postCourseIsland(context, active, true, now);
+            return;
+        }
+
+        JSONObject upcoming = null;
+        for (JSONObject course : courses) {
+            Integer start = Items.itemStart(course);
+            if (start != null && start > now) {
+                upcoming = course;
+                break;
+            }
+        }
+        Integer upcomingStart = Items.itemStart(upcoming);
+        if (upcoming != null && upcomingStart != null && upcomingStart - now <= 30) {
+            postCourseIsland(context, upcoming, false, now);
+        } else {
+            cancelCourseIsland(context);
+        }
+    }
+
+    private static void postCourseIsland(Context context, JSONObject course,
+                                         boolean active, int now) {
+        Integer start = Items.itemStart(course);
+        if (start == null) {
+            cancelCourseIsland(context);
+            return;
+        }
+        Integer end = Items.itemEnd(course);
+        if (active && end == null) {
+            cancelCourseIsland(context);
+            return;
+        }
+
+        String title = course.optString("title", "课程");
+        String place = placeOf(course);
+        String heading = place.isEmpty() ? title : title + " · " + place;
+        String startText = Items.formatMinutes(start);
+        String body;
+        String shortText;
+        int percent = 0;
+
+        if (active) {
+            int duration = Math.max(1, end - start);
+            int elapsed = Math.max(0, now - start);
+            percent = Math.max(0, Math.min(100, elapsed * 100 / duration));
+            body = startText + "–" + Items.formatMinutes(end);
+            shortText = "剩" + Math.max(0, end - now) + "分";
+        } else {
+            int remain = Math.max(1, start - now);
+            body = end == null
+                    ? startText + " 开始"
+                    : startText + "–" + Items.formatMinutes(end);
+            shortText = remain + "分";
+        }
+
+        boolean promoted = canPostPromoted(context);
+        NotificationCompat.Builder note = new NotificationCompat.Builder(context, CHANNEL_ISLAND)
+                .setSmallIcon(R.drawable.ic_stat_calendar)
+                .setAutoCancel(false)
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+                .setContentTitle(heading)
+                .setContentText(body)
+                .setContentIntent(openIntent(context, false));
+
+        if (promoted) {
+            note.setRequestPromotedOngoing(true).setShortCriticalText(shortText);
+            if (active) {
+                NotificationCompat.ProgressStyle style = new NotificationCompat.ProgressStyle()
+                        .addProgressSegment(new NotificationCompat.ProgressStyle.Segment(100))
+                        .setProgress(percent)
+                        .setStyledByProgress(true);
+                note.setStyle(style);
+            }
+        } else if (active) {
+            note.setProgress(100, percent, false);
+        } else {
+            note.setProgress(100, 0, false);
+        }
+
+        if (!active) {
+            long startMs = LocalDate.now()
+                    .atTime(start / 60, start % 60)
+                    .atZone(ZoneId.systemDefault())
+                    .toInstant()
+                    .toEpochMilli();
+            note.setWhen(startMs)
+                    .setUsesChronometer(true)
+                    .setChronometerCountDown(true);
+        }
+
+        deliver(context, ID_ISLAND, note);
     }
 
     static List<JSONObject> allItems(JSONObject cache) {

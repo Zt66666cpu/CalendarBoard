@@ -135,10 +135,15 @@ final class ReminderScheduler {
         }
         editor.putLong(KEY_NEXT_AHEAD, aheadMs);
 
-        long islandMs = nextIslandMs(allItems, todayDate, nowMs);
-        if (islandMs > 0L) {
-            scheduleExactOrFallback(app, alarms, islandMs, REQ_ISLAND,
-                    ReminderReceiver.ACTION_ISLAND, null);
+        long islandMs = 0L;
+        if (Notifier.isIslandEnabled(app)) {
+            islandMs = nextIslandMs(allItems, todayDate, nowMs);
+            if (islandMs > 0L) {
+                scheduleExactOrFallback(app, alarms, islandMs, REQ_ISLAND,
+                        ReminderReceiver.ACTION_ISLAND, null);
+            } else {
+                cancelAlarm(app, alarms, REQ_ISLAND, ReminderReceiver.ACTION_ISLAND);
+            }
         } else {
             cancelAlarm(app, alarms, REQ_ISLAND, ReminderReceiver.ACTION_ISLAND);
         }
@@ -157,7 +162,9 @@ final class ReminderScheduler {
             if (start == null) continue;
             Integer end = Items.itemEnd(item);
             List<Integer> points = new ArrayList<>();
-            points.add(start - 30);
+            for (int minute = start - 30; minute < start; minute += 5) {
+                points.add(minute);
+            }
             points.add(start);
             if (end != null) {
                 for (int minute = start + 10; minute < end; minute += 10) {

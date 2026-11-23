@@ -20,6 +20,7 @@ import android.view.ViewGroup;
 import android.view.Window;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -47,6 +48,7 @@ public final class DiagnosticsActivity extends AppCompatActivity {
 
     private TextView syncValue;
     private TextView cacheCountValue;
+    private Switch islandSwitch;
 
     private int dp(float value) {
         return KnitTheme.dp(this, value);
@@ -148,8 +150,11 @@ public final class DiagnosticsActivity extends AppCompatActivity {
     private View buildPermissionCard() {
         LinearLayout card = card();
         card.addView(sectionTitle("权限状态"));
+        card.addView(buildIslandToggle());
 
         addPermissionRow(card, "notifications", "通知总开关", this::openNotificationSettings);
+        addPermissionRow(card, "promoted", "超级岛（实时更新）",
+                this::openNotificationSettings);
         addPermissionRow(card, Notifier.CHANNEL_MORNING, "早安摘要渠道",
                 () -> openChannelSettings(Notifier.CHANNEL_MORNING));
         addPermissionRow(card, Notifier.CHANNEL_TODO, "待办提醒渠道",
@@ -216,6 +221,45 @@ public final class DiagnosticsActivity extends AppCompatActivity {
         lp.bottomMargin = dp(14);
         card.setLayoutParams(lp);
         return card;
+    }
+
+    private View buildIslandToggle() {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(7), 0, dp(7));
+
+        LinearLayout text = new LinearLayout(this);
+        text.setOrientation(LinearLayout.VERTICAL);
+        TextView name = new TextView(this);
+        name.setText("课程岛");
+        name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        name.setTextColor(KnitTheme.INK_PRIMARY);
+        name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        text.addView(name);
+
+        TextView detail = new TextView(this);
+        detail.setText("开启后，上课前与上课中在系统实时活动中显示进度");
+        detail.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        detail.setTextColor(KnitTheme.INK_SECONDARY);
+        detail.setPadding(0, dp(2), 0, 0);
+        text.addView(detail);
+        row.addView(text, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+
+        islandSwitch = new Switch(this);
+        islandSwitch.setChecked(Notifier.isIslandEnabled(this));
+        islandSwitch.setOnCheckedChangeListener((button, checked) -> onIslandToggled(checked));
+        row.addView(islandSwitch);
+        return row;
+    }
+
+    private void onIslandToggled(boolean enabled) {
+        Notifier.setIslandEnabled(this, enabled);
+        if (enabled) Notifier.updateCourseIsland(this, SessionStore.cache(this));
+        ReminderScheduler.rescheduleAll(this);
+        refreshValues();
+        Toast.makeText(this, enabled ? "课程岛已开启" : "课程岛已关闭", Toast.LENGTH_SHORT).show();
     }
 
     private TextView sectionTitle(String text) {
@@ -354,8 +398,25 @@ public final class DiagnosticsActivity extends AppCompatActivity {
             value.setTextColor(next > 0 ? KnitTheme.YARN_COURSE : KnitTheme.INK_MUTED);
         }
 
+        if (islandSwitch != null) {
+            islandSwitch.setOnCheckedChangeListener(null);
+            islandSwitch.setChecked(Notifier.isIslandEnabled(this));
+            islandSwitch.setOnCheckedChangeListener((button, checked) -> onIslandToggled(checked));
+        }
+
         NotificationManager manager =
                 (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        TextView promoted = permissionValues.get("promoted");
+        if (promoted != null) {
+            if (Build.VERSION.SDK_INT < 36) {
+                setPermissionState(promoted, false, "系统低于 Android 16（普通通知）");
+            } else if (Notifier.canPostPromoted(this)) {
+                setPermissionState(promoted, true, "已开启（上岛）");
+            } else {
+                setPermissionState(promoted, false, "已关闭（退化为普通通知）");
+            }
+        }
+
         TextView total = permissionValues.get("notifications");
         if (total != null) {
             boolean enabled = NotificationManagerCompat.from(this).areNotificationsEnabled();
