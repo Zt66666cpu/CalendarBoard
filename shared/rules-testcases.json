@@ -1,0 +1,566 @@
+{
+  "today": "2026-11-24",
+  "meta": {
+    "type": "meta",
+    "schemaVersion": 2,
+    "termName": "2026秋",
+    "termStart": "2026-08-31",
+    "termWeeks": 20
+  },
+  "timeParsing": [
+    { "input": "9:00", "expected": 540 },
+    { "input": "10:00", "expected": 600 },
+    { "input": "9：05", "expected": 545 },
+    { "input": " 23:59 ", "expected": 1439 },
+    { "input": "0:00", "expected": 0 },
+    { "input": "25:00", "expected": null },
+    { "input": "12:60", "expected": null },
+    { "input": "9:5", "expected": null },
+    { "input": "", "expected": null },
+    { "input": "abc", "expected": null }
+  ],
+  "formatting": [
+    { "input": 0, "expected": "00:00" },
+    { "input": 545, "expected": "09:05" },
+    { "input": 1439, "expected": "23:59" },
+    { "input": null, "expected": "" },
+    { "input": -1, "expected": "" },
+    { "input": 1440, "expected": "" },
+    { "input": 9.5, "expected": "" }
+  ],
+  "sorting": [
+    {
+      "name": "九点先于十点",
+      "items": [
+        { "id": "ten", "title": "十点事项", "startTime": "10:00" },
+        { "id": "nine", "title": "九点事项", "startTime": "9:00" }
+      ],
+      "expectedIds": ["nine", "ten"]
+    },
+    {
+      "name": "相同开始时间按 title 的 UTF-16 码元排序",
+      "items": [
+        { "id": "chinese", "title": "阿", "startTime": "9:00" },
+        { "id": "latin", "title": "B", "startTime": "9:00" }
+      ],
+      "expectedIds": ["latin", "chinese"]
+    },
+    {
+      "name": "相同时间和 title 按 id 码元排序",
+      "items": [
+        { "id": "b", "title": "同名", "startTime": "9:00" },
+        { "id": "a", "title": "同名", "startTime": "9:00" }
+      ],
+      "expectedIds": ["a", "b"]
+    },
+    {
+      "name": "无时间事项排在最后",
+      "items": [
+        { "id": "no-time", "title": "A", "startTime": "" },
+        { "id": "timed", "title": "Z", "startTime": "23:00" }
+      ],
+      "expectedIds": ["timed", "no-time"]
+    },
+    {
+      "name": "旧 time 字段参与排序",
+      "items": [
+        { "id": "late", "title": "后", "time": "9：05-10:00" },
+        { "id": "early", "title": "前", "time": "8:30-9:00" }
+      ],
+      "expectedIds": ["early", "late"]
+    }
+  ],
+  "legacyTime": [
+    {
+      "name": "全角冒号旧时间",
+      "item": { "time": "9：05-10:30" },
+      "start": 545,
+      "end": 630,
+      "build": "09:05-10:30"
+    },
+    {
+      "name": "旧时间只有开始",
+      "item": { "time": "10:00" },
+      "start": 600,
+      "end": null,
+      "build": "10:00"
+    },
+    {
+      "name": "只有 endTime 没有 startTime 当作无时间",
+      "item": { "endTime": "10:00" },
+      "start": null,
+      "end": null,
+      "build": ""
+    },
+    {
+      "name": "startTime 非法时回退旧 time",
+      "item": { "startTime": "25:00", "time": "9:00-10:00" },
+      "start": 540,
+      "end": 600,
+      "build": "09:00-10:00"
+    },
+    {
+      "name": "越界旧时间无法解析",
+      "item": { "time": "25:00-26:00" },
+      "start": null,
+      "end": null,
+      "build": ""
+    },
+    {
+      "name": "结束不晚于开始视为无结束",
+      "item": { "time": "9:00-9:00" },
+      "start": 540,
+      "end": null,
+      "build": "09:00"
+    }
+  ],
+  "dataset": [
+    {
+      "id": "meta-row",
+      "type": "meta",
+      "schemaVersion": 2,
+      "termName": "2026秋",
+      "termStart": "2026-08-31",
+      "termWeeks": 20
+    },
+    {
+      "id": "done-with-at",
+      "date": "2026-11-23",
+      "type": "待办",
+      "title": "已完成带时间",
+      "startTime": "09:00",
+      "endTime": "10:00",
+      "done": true,
+      "completedAt": "2026-11-23T20:00:00+08:00"
+    },
+    {
+      "id": "done-legacy",
+      "date": "2026-11-23",
+      "type": "待办",
+      "title": "旧完成",
+      "startTime": "08:00",
+      "done": true
+    },
+    {
+      "id": "dropped",
+      "date": "2026-11-22",
+      "type": "待办",
+      "title": "已放弃",
+      "startTime": "10:00",
+      "status": "dropped",
+      "droppedAt": "2026-11-22T21:00:00+08:00"
+    },
+    {
+      "id": "pending",
+      "date": "2026-11-20",
+      "type": "待办",
+      "title": "待处理",
+      "startTime": "11:00"
+    },
+    {
+      "id": "schedule-past",
+      "date": "2026-11-23",
+      "type": "日程",
+      "title": "过去日程",
+      "startTime": "14:00",
+      "endTime": "15:00"
+    },
+    {
+      "id": "schedule-today",
+      "date": "2026-11-24",
+      "type": "日程",
+      "title": "今日日程",
+      "startTime": "15:00",
+      "endTime": "16:00"
+    },
+    {
+      "id": "schedule-future",
+      "date": "2026-11-25",
+      "type": "日程",
+      "title": "明日日程",
+      "startTime": "9:30",
+      "endTime": "10:30"
+    },
+    {
+      "id": "course-past",
+      "date": "2026-11-23",
+      "type": "课程",
+      "title": "过去课程",
+      "startTime": "8:00",
+      "endTime": "9:30"
+    },
+    {
+      "id": "course-today-a",
+      "date": "2026-11-24",
+      "type": "课程",
+      "title": "高等数学",
+      "startTime": "8:00",
+      "endTime": "9:35",
+      "place": "A101"
+    },
+    {
+      "id": "course-today-overlap",
+      "date": "2026-11-24",
+      "type": "课程",
+      "title": "程序设计",
+      "startTime": "9:00",
+      "endTime": "10:30",
+      "place": "C303"
+    },
+    {
+      "id": "course-today-noend",
+      "date": "2026-11-24",
+      "type": "课程",
+      "title": "大学物理",
+      "startTime": "10:00",
+      "room": "B202"
+    },
+    {
+      "id": "todo-today",
+      "date": "2026-11-24",
+      "type": "待办",
+      "title": "今日待办",
+      "startTime": "18:30",
+      "endTime": "19:00"
+    },
+    {
+      "id": "done-today",
+      "date": "2026-11-24",
+      "type": "待办",
+      "title": "刚完成",
+      "startTime": "13:00",
+      "done": true,
+      "completedAt": "2026-11-24T12:00:00+08:00"
+    },
+    {
+      "id": "todo-future",
+      "date": "2026-11-25",
+      "type": "待办",
+      "title": "明日待办",
+      "startTime": "16:00"
+    },
+    {
+      "id": "course-future",
+      "date": "2026-11-26",
+      "type": "课程",
+      "title": "未来课程",
+      "startTime": "14:00",
+      "endTime": "15:30"
+    }
+  ],
+  "statusChecks": {
+    "done": ["done-with-at", "done-legacy"],
+    "dropped": ["dropped"],
+    "pending": ["pending"],
+    "archived": ["done-with-at", "done-legacy", "dropped", "schedule-past"],
+    "noArchive": ["pending", "schedule-today", "schedule-future", "course-today-a"]
+  },
+  "dayItems": [
+    {
+      "name": "今天无撤销窗口",
+      "iso": "2026-11-24",
+      "recentDoneIds": [],
+      "expected": {
+        "past": false,
+        "courseIds": ["course-today-a", "course-today-overlap", "course-today-noend"],
+        "scheduleIds": ["schedule-today"],
+        "todoIds": ["todo-today"],
+        "pendingIds": ["pending"],
+        "archivedCount": 1
+      }
+    },
+    {
+      "name": "今天保留五秒撤销窗口内已完成待办",
+      "iso": "2026-11-24",
+      "recentDoneIds": ["done-today"],
+      "expected": {
+        "past": false,
+        "courseIds": ["course-today-a", "course-today-overlap", "course-today-noend"],
+        "scheduleIds": ["schedule-today"],
+        "todoIds": ["done-today", "todo-today"],
+        "pendingIds": ["pending"],
+        "archivedCount": 0
+      }
+    },
+    {
+      "name": "过去日期只显示课程并统计归档",
+      "iso": "2026-11-23",
+      "recentDoneIds": [],
+      "expected": {
+        "past": true,
+        "courseIds": ["course-past"],
+        "scheduleIds": [],
+        "todoIds": [],
+        "pendingIds": [],
+        "archivedCount": 3
+      }
+    },
+    {
+      "name": "未来日期显示日程和待办",
+      "iso": "2026-11-25",
+      "recentDoneIds": [],
+      "expected": {
+        "past": false,
+        "courseIds": [],
+        "scheduleIds": ["schedule-future"],
+        "todoIds": ["todo-future"],
+        "pendingIds": [],
+        "archivedCount": 0
+      }
+    }
+  ],
+  "dayDots": [
+    {
+      "iso": "2026-11-24",
+      "expected": { "course": true, "todo": true, "schedule": true }
+    },
+    {
+      "iso": "2026-11-23",
+      "expected": { "course": true, "todo": false, "schedule": false }
+    },
+    {
+      "iso": "2026-11-25",
+      "expected": { "course": false, "todo": true, "schedule": true }
+    },
+    {
+      "iso": "2026-11-26",
+      "expected": { "course": true, "todo": false, "schedule": false }
+    }
+  ],
+  "weekAhead": [
+    {
+      "offset": 1,
+      "iso": "2026-11-25",
+      "courseCount": 0,
+      "firstCourseStart": null,
+      "itemIds": ["schedule-future", "todo-future"]
+    },
+    {
+      "offset": 2,
+      "iso": "2026-11-26",
+      "courseCount": 1,
+      "firstCourseStart": 840,
+      "itemIds": []
+    },
+    {
+      "offset": 3,
+      "iso": "2026-11-27",
+      "courseCount": 0,
+      "firstCourseStart": null,
+      "itemIds": []
+    },
+    {
+      "offset": 4,
+      "iso": "2026-11-28",
+      "courseCount": 0,
+      "firstCourseStart": null,
+      "itemIds": []
+    },
+    {
+      "offset": 5,
+      "iso": "2026-11-29",
+      "courseCount": 0,
+      "firstCourseStart": null,
+      "itemIds": []
+    },
+    {
+      "offset": 6,
+      "iso": "2026-11-30",
+      "courseCount": 0,
+      "firstCourseStart": null,
+      "itemIds": []
+    },
+    {
+      "offset": 7,
+      "iso": "2026-12-01",
+      "courseCount": 0,
+      "firstCourseStart": null,
+      "itemIds": []
+    }
+  ],
+  "archiveList": [
+    {
+      "filter": "all",
+      "groups": [
+        {
+          "iso": "2026-11-24",
+          "entries": [
+            { "id": "done-today", "state": "done", "at": "2026-11-24T12:00:00+08:00" }
+          ]
+        },
+        {
+          "iso": "2026-11-23",
+          "entries": [
+            { "id": "done-with-at", "state": "done", "at": "2026-11-23T20:00:00+08:00" },
+            { "id": "done-legacy", "state": "done", "at": null },
+            { "id": "schedule-past", "state": "ended", "at": null }
+          ]
+        },
+        {
+          "iso": "2026-11-22",
+          "entries": [
+            { "id": "dropped", "state": "dropped", "at": "2026-11-22T21:00:00+08:00" }
+          ]
+        }
+      ]
+    },
+    {
+      "filter": "待办",
+      "groups": [
+        {
+          "iso": "2026-11-24",
+          "entries": [
+            { "id": "done-today", "state": "done", "at": "2026-11-24T12:00:00+08:00" }
+          ]
+        },
+        {
+          "iso": "2026-11-23",
+          "entries": [
+            { "id": "done-with-at", "state": "done", "at": "2026-11-23T20:00:00+08:00" },
+            { "id": "done-legacy", "state": "done", "at": null }
+          ]
+        },
+        {
+          "iso": "2026-11-22",
+          "entries": [
+            { "id": "dropped", "state": "dropped", "at": "2026-11-22T21:00:00+08:00" }
+          ]
+        }
+      ]
+    },
+    {
+      "filter": "日程",
+      "groups": [
+        {
+          "iso": "2026-11-23",
+          "entries": [
+            { "id": "schedule-past", "state": "ended", "at": null }
+          ]
+        }
+      ]
+    }
+  ],
+  "reviewTriggerMinutes": [
+    { "name": "默认数据集最晚结束 19:00", "items": "dataset", "expected": 1140 },
+    {
+      "name": "早于十八点返回 1080",
+      "items": [
+        { "id": "early-a", "date": "2026-11-24", "type": "待办", "title": "早一", "startTime": "8:00", "endTime": "9:00" },
+        { "id": "early-b", "date": "2026-11-24", "type": "待办", "title": "早二", "startTime": "16:00", "endTime": "17:00" }
+      ],
+      "expected": 1080
+    },
+    {
+      "name": "晚于十八点取最晚结束时间",
+      "items": [
+        { "id": "late-a", "date": "2026-11-24", "type": "待办", "title": "晚一", "startTime": "19:00", "endTime": "19:30" }
+      ],
+      "expected": 1170
+    },
+    {
+      "name": "没有计时待办也返回 1080",
+      "items": [
+        { "id": "no-time-todo", "date": "2026-11-24", "type": "待办", "title": "无时间" }
+      ],
+      "expected": 1080
+    }
+  ],
+  "reviewList": [
+    { "nowMinutes": 1000, "expectedIds": ["pending"] },
+    { "nowMinutes": 1140, "expectedIds": ["pending", "todo-today"] }
+  ],
+  "nowNext": [
+    {
+      "nowMinutes": 420,
+      "expectedCurrent": null,
+      "expectedNext": {
+        "id": "course-today-a",
+        "title": "高等数学",
+        "place": "A101",
+        "start": 480,
+        "end": 575
+      },
+      "freeUntil": 480
+    },
+    {
+      "nowMinutes": 550,
+      "expectedCurrent": {
+        "id": "course-today-a",
+        "title": "高等数学",
+        "place": "A101",
+        "start": 480,
+        "end": 575
+      },
+      "expectedNext": {
+        "id": "course-today-noend",
+        "title": "大学物理",
+        "place": "B202",
+        "start": 600,
+        "end": null
+      },
+      "freeUntil": null
+    },
+    {
+      "nowMinutes": 580,
+      "expectedCurrent": {
+        "id": "course-today-overlap",
+        "title": "程序设计",
+        "place": "C303",
+        "start": 540,
+        "end": 630
+      },
+      "expectedNext": {
+        "id": "course-today-noend",
+        "title": "大学物理",
+        "place": "B202",
+        "start": 600,
+        "end": null
+      },
+      "freeUntil": null
+    },
+    {
+      "nowMinutes": 660,
+      "expectedCurrent": null,
+      "expectedNext": null,
+      "freeUntil": null
+    }
+  ],
+  "postpone": {
+    "initial": {
+      "id": "postpone-row",
+      "date": "2026-11-24",
+      "type": "待办",
+      "title": "顺延事项",
+      "startTime": "9:00"
+    },
+    "targets": ["2026-11-25", "2026-11-26"],
+    "expected": {
+      "date": "2026-11-26",
+      "originalDate": "2026-11-24",
+      "postponeCount": 2
+    }
+  },
+  "termWeek": [
+    { "date": "2026-08-31", "expected": "第1周" },
+    { "date": "2026-09-06", "expected": "第1周" },
+    { "date": "2026-09-07", "expected": "第2周" },
+    { "date": "2026-11-24", "expected": "第13周" },
+    { "date": "2027-01-17", "expected": "第20周" },
+    { "date": "2027-01-18", "expected": "" },
+    { "date": "2026-08-30", "expected": "" }
+  ],
+  "api": {
+    "userId": "1234-ABCD",
+    "metaId": "1234abcd",
+    "url": "https://example.supabase.co",
+    "key": "test-publishable-key",
+    "existingMeta": {
+      "type": "meta",
+      "schemaVersion": 2,
+      "termName": "云端学期",
+      "termStart": "2026-08-31",
+      "termWeeks": 20
+    },
+    "pageSize": 1000
+  }
+}
