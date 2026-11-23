@@ -87,7 +87,17 @@ const state = {
   hoverExpand: true,
   dockMode: 'autoHide', // 'autoHide' | 'desktop' | 'normal' | 'floating'
   glassStyle: 'regular', // 'regular' | 'clear'
+  recentDoneIds: new Set(),
+  undoTimers: new Map(),
+  subview: null, // null | 'review' | 'archive'
+  archiveFilter: 'all',
+  archiveLimit: 200,
+  archiveFocusIso: null,
+  deleteConfirmArmed: false,
+  deleteConfirmTimer: null,
 };
+
+let activeUndoStatusId = null;
 
 // Lunar & Chinese Holiday helper
 const LUNAR_DAYS = ['', '初一','初二','初三','初四','初五','初六','初七','初八','初九','初十',
@@ -194,6 +204,7 @@ const apiClient = CBCore.createApi({
 });
 
 function setStatus(message, isError = false) {
+  activeUndoStatusId = null;
   const el = $('statusText');
   el.textContent = message;
   el.classList.toggle('error', isError);
@@ -201,6 +212,78 @@ function setStatus(message, isError = false) {
 
 function isLocalMode() {
   return state.mode === 'demo' || state.mode === 'local';
+}
+
+function formatMonthDay(iso) {
+  const date = parseDate(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return `${date.getMonth() + 1}月${date.getDate()}日`;
+}
+
+function nowMinutes() {
+  const now = new Date();
+  return now.getHours() * 60 + now.getMinutes();
+}
+
+function canMutate() {
+  if (state.readOnly) {
+    setStatus('请升级应用', true);
+    return false;
+  }
+  if (state.mode === 'cloud' && state.offline) {
+    setStatus('没有保存成功，请重试', true);
+    return false;
+  }
+  return true;
+}
+
+function mutateItem(id, newPayload, onSuccessStatus) {
+  if (state.readOnly) {
+    setStatus('请升级应用', true);
+    return;
+  }
+  if (state.mode === 'cloud' && state.offline) {
+    setStatus('没有保存成功，请重试', true);
+    return;
+  }
+  const prevItem = state.items.find((it) => it.id === id);
+  state.items = state.items.map((it) => (it.id === id ? { ...newPayload, id } : it));
+  if (isLocalMode()) {
+    storeSet('demoItems', state.items);
+    renderAll();
+    if (onSuccessStatus) onSuccessStatus();
+    return;
+  }
+  storeSet('cache', state.items);
+  renderAll();
+  return apiClient.enqueueWrite(id, () => apiClient.update(id, newPayload))
+    .then(() => {
+      if (onSuccessStatus) onSuccessStatus();
+    })
+    .catch(async (err) => {
+      const timer = state.undoTimers.get(id);
+      if (timer) {
+        clearTimeout(timer);
+        state.undoTimers.delete(id);
+      }
+      if (err && err.code === 'gone') {
+        state.items = state.items.filter((it) => it.id !== id);
+        state.recentDoneIds.delete(id);
+        storeSet('cache', state.items);
+        setStatus('该事项已在其他设备删除', true);
+        await syncItems();
+        return;
+      }
+      if (prevItem) {
+        state.items = state.items.map((it) => (it.id === id ? prevItem : it));
+      } else {
+        state.items = state.items.filter((it) => it.id !== id);
+      }
+      state.recentDoneIds.delete(id);
+      storeSet('cache', state.items);
+      renderAll();
+      setStatus('没有保存成功，请重试', true);
+    });
 }
 
 function academicWeekLabel(date) {
@@ -266,6 +349,7 @@ function updateClock() {
     }
     syncItems();
   }
+  if (checkReviewPrompt()) renderAll();
 }
 
 function renderModeBadge() {
@@ -352,6 +436,7 @@ function renderCalendar() {
       state.selected = iso;
       state.view = new Date(date.getFullYear(), date.getMonth(), 1);
       state.sidebarTab = 'day';
+      state.subview = null;
       renderAll();
     });
     cell.addEventListener('dblclick', () => {
@@ -377,76 +462,210 @@ function renderSidebarHeader() {
   $('selectedSubtitle').textContent = subParts.join(' · ');
 }
 
+function showUndoStatus(item) {
+  activeUndoStatusId = item.id;
+  const el = $('statusText');
+  el.classList.remove('error');
+  el.replaceChildren();
+  el.append(document.createTextNode(`已完成「${item.title}」 · `));
+  const undoBtn = document.createElement('button');
+  undoBtn.type = 'button';
+  undoBtn.className = 'undo-inline-btn';
+  undoBtn.textContent = '撤销';
+  undoBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    undoCompleteTodo(item.id);
+  });
+  el.append(undoBtn);
+}
+
+function completeTodo(item) {
+  if (!item || !item.id) return;
+  if (!canMutate()) return;
+  const id = item.id;
+  state.recentDoneIds.add(id);
+  const existing = state.undoTimers.get(id);
+  if (existing) clearTimeout(existing);
+  state.undoTimers.set(id, setTimeout(() => {
+    state.undoTimers.delete(id);
+    state.recentDoneIds.delete(id);
+    if (activeUndoStatusId === id) {
+      setStatus(`已完成「${item.title}」`);
+    }
+    renderAll();
+  }, 5000));
+  showUndoStatus(item);
+  mutateItem(id, CBCore.applyDone(item, true));
+}
+
+function undoCompleteTodo(id) {
+  const timer = state.undoTimers.get(id);
+  if (timer) clearTimeout(timer);
+  state.undoTimers.delete(id);
+  state.recentDoneIds.delete(id);
+  const current = state.items.find((it) => it.id === id);
+  if (!current) {
+    renderAll();
+    return;
+  }
+  mutateItem(id, CBCore.applyDone(current, false), () => setStatus('已撤销完成'));
+}
+
+function actionButton(label, handler) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'entry-done-btn';
+  btn.textContent = label;
+  btn.disabled = state.offline || state.readOnly;
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    handler();
+  });
+  return btn;
+}
+
+function createEntryMain(item, metaText) {
+  const main = document.createElement('div');
+  main.className = 'entry-main';
+  const title = document.createElement('div');
+  title.className = 'entry-title';
+  title.textContent = item.title;
+  main.append(title);
+  if (metaText) {
+    const meta = document.createElement('div');
+    meta.className = 'entry-meta';
+    meta.textContent = metaText;
+    main.append(meta);
+  }
+  return main;
+}
+
 function renderDayList() {
-  const dayData = CBCore.dayItems(state.items, state.selected, state.todayIso);
-  const map = {
-    课程: { list: $('listCourse'), count: $('countCourse'), empty: '今天没有课程', items: dayData.courses },
-    待办: {
-      list: $('listTodo'),
-      count: $('countTodo'),
-      empty: '暂无待办事项',
-      items: dayData.past
-        ? []
-        : [...dayData.todos, ...(state.selected === state.todayIso ? dayData.pending : [])].sort(CBCore.byTime),
-    },
-    日程: { list: $('listSchedule'), count: $('countSchedule'), empty: '暂无日程安排', items: dayData.past ? [] : dayData.schedules },
-  };
+  const dayData = CBCore.dayItems(state.items, state.selected, state.todayIso, state.recentDoneIds);
+  const isToday = state.selected === state.todayIso;
 
-  for (const type of ['课程', '待办', '日程']) {
-    const { list, count, empty, items } = map[type];
-    list.replaceChildren();
-    const group = list.closest('.cat-group');
-    if (group) group.classList.toggle('hidden', dayData.past && type !== '课程');
+  // 课程：过去日期保留并置灰，卡片上不再提供删除入口。
+  const courseList = $('listCourse');
+  const courseGroup = courseList.closest('.cat-group');
+  courseList.replaceChildren();
+  if (courseGroup) courseGroup.classList.remove('hidden');
+  $('countCourse').textContent = String(dayData.courses.length);
+  if (!dayData.courses.length) {
+    const hint = document.createElement('div');
+    hint.className = 'empty-hint';
+    hint.textContent = dayData.past ? '这天没有课程' : '今天没有课程';
+    courseList.append(hint);
+  }
+  for (const item of dayData.courses) {
+    const card = document.createElement('div');
+    card.className = `entry-card${dayData.past ? ' muted' : ''}`;
+    const metaParts = [item.time, itemPlace(item)].filter(Boolean);
+    card.append(createEntryMain(item, metaParts.join(' · ')));
+    card.addEventListener('click', () => openEntryModal(item));
+    courseList.append(card);
+  }
+  if (dayData.past && dayData.archivedCount > 0) {
+    const archived = document.createElement('button');
+    archived.type = 'button';
+    archived.className = 'archive-link';
+    archived.textContent = `这一天有 ${dayData.archivedCount} 条已归档 ›`;
+    archived.addEventListener('click', () => openArchiveView(state.selected));
+    courseList.append(archived);
+  }
 
-    count.textContent = String(items.length);
-    if (!items.length) {
-      const hint = document.createElement('div');
-      hint.className = 'empty-hint';
-      hint.textContent = empty;
-      list.append(hint);
-    }
+  // 待办：只展示当天待办，待处理单独成组。
+  const todoList = $('listTodo');
+  const todoGroup = todoList.closest('.cat-group');
+  todoList.replaceChildren();
+  if (todoGroup) todoGroup.classList.toggle('hidden', dayData.past);
+  $('countTodo').textContent = String(dayData.todos.length);
+  if (!dayData.todos.length) {
+    const hint = document.createElement('div');
+    hint.className = 'empty-hint';
+    hint.textContent = '暂无待办事项';
+    todoList.append(hint);
+  }
+  for (const item of dayData.todos) {
+    const done = CBCore.isDone(item);
+    const card = document.createElement('div');
+    card.className = `entry-card${done ? ' recent-done' : ''}`;
+    const metaParts = [item.time, itemPlace(item)].filter(Boolean);
+    card.append(createEntryMain(item, metaParts.join(' · ')));
+    const btn = done
+      ? actionButton('撤销', () => undoCompleteTodo(item.id))
+      : actionButton('已完成', () => completeTodo(item));
+    card.append(btn);
+    card.addEventListener('click', () => openEntryModal(item));
+    todoList.append(card);
+  }
 
-    for (const item of items) {
-      const card = document.createElement('div');
-      card.className = 'entry-card';
-
-      const main = document.createElement('div');
-      main.className = 'entry-main';
-      const title = document.createElement('div');
-      title.className = 'entry-title';
-      title.textContent = item.title;
-      main.append(title);
-
-      const metaParts = [item.time, itemPlace(item)].filter(Boolean);
-      if (type === '待办' && item.date < state.selected) metaParts.unshift(item.date);
-      if (metaParts.length) {
-        const meta = document.createElement('div');
-        meta.className = 'entry-meta';
-        meta.textContent = metaParts.join(' · ');
-        main.append(meta);
-      }
-
-      const quickBtn = document.createElement('button');
-      quickBtn.type = 'button';
-      quickBtn.className = 'entry-done-btn';
-      quickBtn.textContent = type === '待办' ? '✓ 完成' : '删除';
-      quickBtn.disabled = state.offline || state.readOnly;
-      quickBtn.addEventListener('click', (e) => {
+  // 待处理：仅今天显示，全部为今天之前顺延下来的待办。
+  const pending = dayData.pending;
+  const pendingGroup = $('groupPending');
+  const pendingList = $('listPending');
+  const showPending = !dayData.past && isToday && pending.length > 0;
+  pendingGroup.classList.toggle('hidden', !showPending);
+  pendingList.replaceChildren();
+  $('countPending').textContent = String(pending.length);
+  for (const item of pending) {
+    const done = CBCore.isDone(item);
+    const card = document.createElement('div');
+    card.className = `entry-card${done ? ' recent-done' : ''}`;
+    card.append(createEntryMain(item, `原定 ${formatMonthDay(item.date)}`));
+    const actions = document.createElement('div');
+    actions.className = 'entry-actions';
+    if (done) {
+      actions.append(actionButton('撤销', () => undoCompleteTodo(item.id)));
+    } else {
+      actions.append(
+        actionButton('已完成', () => completeTodo(item)),
+        actionButton('顺延', () => {
+          mutateItem(item.id, CBCore.applyPostpone(item, CBCore.addDays(state.todayIso, 1)),
+            () => setStatus(`已顺延「${item.title}」到明天`));
+        }),
+      );
+      const dateInput = document.createElement('input');
+      dateInput.type = 'date';
+      dateInput.className = 'mini-date-input';
+      dateInput.title = '选择顺延日期';
+      dateInput.value = CBCore.addDays(state.todayIso, 1);
+      dateInput.disabled = state.offline || state.readOnly;
+      dateInput.addEventListener('click', (e) => e.stopPropagation());
+      dateInput.addEventListener('change', (e) => {
         e.stopPropagation();
-        deleteItem(item);
+        const targetIso = dateInput.value;
+        if (!targetIso) return;
+        mutateItem(item.id, CBCore.applyPostpone(item, targetIso),
+          () => setStatus(`已顺延「${item.title}」到 ${formatMonthDay(targetIso)}`));
       });
-
-      card.addEventListener('click', () => openEntryModal(item));
-      card.append(main, quickBtn);
-      list.append(card);
+      actions.append(dateInput, actionButton('放弃', () => {
+        mutateItem(item.id, CBCore.applyDrop(item), () => setStatus(`已放弃「${item.title}」`));
+      }));
     }
+    card.append(actions);
+    card.addEventListener('click', () => openEntryModal(item));
+    pendingList.append(card);
+  }
 
-    if (type === '课程' && dayData.past && dayData.archivedCount > 0) {
-      const archived = document.createElement('div');
-      archived.className = 'empty-hint';
-      archived.textContent = `这一天有 ${dayData.archivedCount} 条已归档`;
-      list.append(archived);
-    }
+  // 日程：卡片上不再提供删除入口。
+  const scheduleList = $('listSchedule');
+  const scheduleGroup = scheduleList.closest('.cat-group');
+  scheduleList.replaceChildren();
+  if (scheduleGroup) scheduleGroup.classList.toggle('hidden', dayData.past);
+  $('countSchedule').textContent = String(dayData.schedules.length);
+  if (!dayData.schedules.length) {
+    const hint = document.createElement('div');
+    hint.className = 'empty-hint';
+    hint.textContent = '暂无日程安排';
+    scheduleList.append(hint);
+  }
+  for (const item of dayData.schedules) {
+    const card = document.createElement('div');
+    card.className = 'entry-card';
+    const metaParts = [item.time, itemPlace(item)].filter(Boolean);
+    card.append(createEntryMain(item, metaParts.join(' · ')));
+    card.addEventListener('click', () => openEntryModal(item));
+    scheduleList.append(card);
   }
 }
 
@@ -454,58 +673,58 @@ function renderWeekView() {
   const container = $('weekView');
   container.replaceChildren();
   const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-  const base = parseDate(state.todayIso);
+  const days = CBCore.weekAhead(state.items, state.todayIso);
 
-  for (let offset = 1; offset <= 7; offset++) {
-    const d = addDays(base, offset);
-    const iso = localDate(d);
+  for (const day of days) {
+    const d = parseDate(day.iso);
     const block = document.createElement('div');
     block.className = 'week-day-block';
 
     const head = document.createElement('div');
     head.className = 'week-day-head';
-    head.innerHTML = `<span>${d.getMonth() + 1}月${d.getDate()}日 · ${weekdays[d.getDay()]}</span>`;
+    const headLabel = document.createElement('span');
+    headLabel.textContent = `${d.getMonth() + 1}月${d.getDate()}日 · ${weekdays[d.getDay()]}`;
+    head.append(headLabel);
     const addBtn = document.createElement('button');
     addBtn.type = 'button';
     addBtn.className = 'add-mini';
     addBtn.textContent = '＋';
     addBtn.title = '给这天添加日程';
     addBtn.addEventListener('click', () => {
-      state.selected = iso;
+      state.selected = day.iso;
       openEntryModal(null, '日程');
     });
     head.append(addBtn);
     block.append(head);
 
-    const dayData = CBCore.dayItems(state.items, iso, state.todayIso);
-    const items = dayData.schedules;
+    if (day.courseCount > 0) {
+      const summary = document.createElement('div');
+      summary.className = 'course-summary-row';
+      summary.textContent = day.firstCourseStart !== null
+        ? `${day.courseCount} 节课 · 首节 ${CBCore.formatMinutes(day.firstCourseStart)}`
+        : `${day.courseCount} 节课`;
+      block.append(summary);
+    }
 
-    if (!items.length) {
-      const empty = document.createElement('div');
-      empty.className = 'empty-hint';
-      empty.textContent = '暂无日程';
-      block.append(empty);
+    if (!day.items.length) {
+      if (day.courseCount === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'empty-hint';
+        empty.textContent = '暂无安排';
+        block.append(empty);
+      }
     } else {
       const list = document.createElement('div');
       list.className = 'cat-list';
-      for (const item of items) {
+      for (const item of day.items) {
         const card = document.createElement('div');
         card.className = 'entry-card';
-        const main = document.createElement('div');
-        main.className = 'entry-main';
-        const title = document.createElement('div');
-        title.className = 'entry-title';
-        title.textContent = item.title;
-        main.append(title);
         const metaParts = [item.time, itemPlace(item)].filter(Boolean);
-        if (metaParts.length) {
-          const meta = document.createElement('div');
-          meta.className = 'entry-meta';
-          meta.textContent = metaParts.join(' · ');
-          main.append(meta);
+        card.append(createEntryMain(item, metaParts.join(' · ')));
+        if (item.type === '待办') {
+          card.append(actionButton('已完成', () => completeTodo(item)));
         }
         card.addEventListener('click', () => openEntryModal(item));
-        card.append(main);
         list.append(card);
       }
       block.append(list);
@@ -514,12 +733,363 @@ function renderWeekView() {
   }
 }
 
+let reviewAutoCloseTimer = null;
+
+function currentReviewList() {
+  return CBCore.reviewList(state.items, state.todayIso, nowMinutes());
+}
+
+function checkReviewPrompt() {
+  if (state.subview) return false;
+  const list = currentReviewList();
+  if (!list.length) return false;
+  if (nowMinutes() < CBCore.reviewTriggerMinutes(state.items, state.todayIso)) return false;
+  if (storeGet('lastReviewPromptDate') === state.todayIso) return false;
+  state.subview = 'review';
+  storeSet('lastReviewPromptDate', state.todayIso);
+  return true;
+}
+
+function renderReviewBanner() {
+  const banner = $('reviewBanner');
+  const list = currentReviewList();
+  if (!list.length) {
+    banner.classList.add('hidden');
+    banner.replaceChildren();
+    return;
+  }
+  banner.classList.remove('hidden');
+  const text = document.createElement('span');
+  text.textContent = `今日回顾 · 还有 ${list.length} 项待决定 ›`;
+  banner.replaceChildren(text);
+}
+
+function closeReviewView() {
+  if (reviewAutoCloseTimer) {
+    clearTimeout(reviewAutoCloseTimer);
+    reviewAutoCloseTimer = null;
+  }
+  state.subview = null;
+  renderAll();
+}
+
+function renderReviewView() {
+  const container = $('reviewView');
+  if (reviewAutoCloseTimer) {
+    clearTimeout(reviewAutoCloseTimer);
+    reviewAutoCloseTimer = null;
+  }
+  container.replaceChildren();
+  const list = currentReviewList();
+
+  if (!list.length) {
+    const done = document.createElement('div');
+    done.className = 'empty-hint archive-empty';
+    done.textContent = '都处理好了';
+    container.append(done);
+    if (state.subview === 'review') {
+      reviewAutoCloseTimer = setTimeout(() => {
+        reviewAutoCloseTimer = null;
+        if (state.subview === 'review') {
+          state.subview = null;
+          renderAll();
+        }
+      }, 700);
+    }
+    return;
+  }
+
+  const head = document.createElement('div');
+  head.className = 'subview-head';
+  const title = document.createElement('div');
+  title.className = 'subview-title';
+  title.textContent = `今日回顾 · 还有 ${list.length} 项待决定`;
+  head.append(title);
+  container.append(head);
+
+  const listEl = document.createElement('div');
+  listEl.className = 'cat-list';
+  for (const item of list) {
+    const card = document.createElement('div');
+    card.className = 'entry-card';
+    const metaParts = [`原定 ${formatMonthDay(item.date)}`];
+    if (item.time) metaParts.push(item.time);
+    if (itemPlace(item)) metaParts.push(itemPlace(item));
+    card.append(createEntryMain(item, metaParts.join(' · ')));
+    const actions = document.createElement('div');
+    actions.className = 'entry-actions';
+    actions.append(
+      actionButton('已完成', () => completeTodo(item)),
+      actionButton('顺延', () => {
+        mutateItem(item.id, CBCore.applyPostpone(item, CBCore.addDays(state.todayIso, 1)),
+          () => setStatus(`已顺延「${item.title}」到明天`));
+      }),
+      actionButton('放弃', () => {
+        mutateItem(item.id, CBCore.applyDrop(item), () => setStatus(`已放弃「${item.title}」`));
+      }),
+    );
+    card.append(actions);
+    listEl.append(card);
+  }
+  container.append(listEl);
+
+  const foot = document.createElement('div');
+  foot.className = 'subview-foot';
+  const postponeAll = document.createElement('button');
+  postponeAll.type = 'button';
+  postponeAll.className = 'ghost-btn';
+  postponeAll.textContent = '全部顺延到明天';
+  postponeAll.disabled = state.offline || state.readOnly;
+  postponeAll.addEventListener('click', () => {
+    if (!canMutate()) return;
+    const tomorrow = CBCore.addDays(state.todayIso, 1);
+    const targets = currentReviewList();
+    for (const item of targets) {
+      mutateItem(item.id, CBCore.applyPostpone(item, tomorrow));
+    }
+    setStatus('已全部顺延到明天');
+  });
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.className = 'ghost-btn';
+  closeBtn.textContent = '关闭';
+  closeBtn.addEventListener('click', closeReviewView);
+  foot.append(postponeAll, closeBtn);
+  container.append(foot);
+}
+
+const ARCHIVE_STATE_LABELS = { done: '已完成', dropped: '已放弃', ended: '已结束' };
+
+function attachTwoStepDelete(button, onConfirm) {
+  button.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (button.dataset.confirmArmed === '1') {
+      if (button.confirmTimer) clearTimeout(button.confirmTimer);
+      button.dataset.confirmArmed = '0';
+      button.textContent = '删除';
+      onConfirm();
+      return;
+    }
+    button.dataset.confirmArmed = '1';
+    button.textContent = '确认删除';
+    button.confirmTimer = setTimeout(() => {
+      button.dataset.confirmArmed = '0';
+      button.textContent = '删除';
+    }, 3000);
+  });
+}
+
+async function deleteArchivedItems(itemsToDelete) {
+  if (!itemsToDelete.length) return;
+  if (!canMutate()) return;
+  if (isLocalMode()) {
+    const ids = new Set(itemsToDelete.map((it) => it.id));
+    state.items = state.items.filter((it) => !ids.has(it.id));
+    storeSet('demoItems', state.items);
+    renderAll();
+    setStatus(`已清理 ${itemsToDelete.length} 条归档`);
+    return;
+  }
+  setStatus('正在清理归档…');
+  try {
+    for (const item of itemsToDelete) {
+      await apiClient.remove(item.id);
+    }
+    await syncItems();
+    setStatus(`已清理 ${itemsToDelete.length} 条归档`);
+  } catch (err) {
+    setStatus(err.message, true);
+  }
+}
+
+function attachCleanupButton(button) {
+  let armedItems = null;
+  let resetTimer = null;
+  const reset = () => {
+    if (resetTimer) clearTimeout(resetTimer);
+    resetTimer = null;
+    armedItems = null;
+    button.textContent = '清理 90 天前的归档';
+  };
+  button.addEventListener('click', async () => {
+    if (armedItems) {
+      const targets = armedItems;
+      reset();
+      await deleteArchivedItems(targets);
+      return;
+    }
+    if (!canMutate()) return;
+    const cutoff = CBCore.addDays(state.todayIso, -90);
+    const groups = CBCore.archiveList(state.items, state.todayIso, 'all');
+    const oldItems = [];
+    for (const group of groups) {
+      if (String(group.iso) < cutoff) {
+        for (const entry of group.entries) oldItems.push(entry.item);
+      }
+    }
+    if (!oldItems.length) {
+      setStatus('没有 90 天前的归档事项');
+      return;
+    }
+    armedItems = oldItems;
+    button.textContent = `确认清理 ${oldItems.length} 条`;
+    resetTimer = setTimeout(reset, 3000);
+  });
+}
+
+function openArchiveView(focusIso = null) {
+  state.subview = 'archive';
+  state.archiveFilter = 'all';
+  state.archiveLimit = 200;
+  state.archiveFocusIso = focusIso;
+  renderAll();
+}
+
+function renderArchiveView() {
+  const container = $('archiveView');
+  container.replaceChildren();
+  const filter = state.archiveFilter;
+
+  const head = document.createElement('div');
+  head.className = 'subview-head';
+  const title = document.createElement('div');
+  title.className = 'subview-title';
+  title.textContent = '归档';
+  const backBtn = document.createElement('button');
+  backBtn.type = 'button';
+  backBtn.className = 'pill-btn';
+  backBtn.textContent = '返回';
+  backBtn.addEventListener('click', () => {
+    state.subview = null;
+    state.archiveFocusIso = null;
+    renderAll();
+  });
+  head.append(title, backBtn);
+
+  const filters = document.createElement('div');
+  filters.className = 'archive-filters';
+  const filterOptions = [
+    { key: 'all', label: '全部' },
+    { key: '待办', label: '待办' },
+    { key: '日程', label: '日程' },
+  ];
+  for (const option of filterOptions) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `pill-btn archive-filter-btn${filter === option.key ? ' active' : ''}`;
+    btn.textContent = option.label;
+    btn.addEventListener('click', () => {
+      state.archiveFilter = option.key;
+      state.archiveLimit = 200;
+      state.archiveFocusIso = null;
+      renderAll();
+    });
+    filters.append(btn);
+  }
+  container.append(head, filters);
+
+  const groups = CBCore.archiveList(state.items, state.todayIso, filter);
+  let total = 0;
+  for (const group of groups) total += group.entries.length;
+  let shown = 0;
+  const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+  for (const group of groups) {
+    if (shown >= state.archiveLimit) break;
+    const remain = state.archiveLimit - shown;
+    const entries = group.entries.slice(0, remain);
+    if (!entries.length) continue;
+    shown += entries.length;
+
+    const groupEl = document.createElement('div');
+    groupEl.className = 'archive-group';
+    groupEl.dataset.archiveIso = group.iso;
+    const groupHead = document.createElement('div');
+    groupHead.className = 'archive-date';
+    const gd = parseDate(group.iso);
+    groupHead.textContent = `${formatMonthDay(group.iso)} · ${weekdays[gd.getDay()]}`;
+    groupEl.append(groupHead);
+
+    const listEl = document.createElement('div');
+    listEl.className = 'cat-list';
+    for (const entry of entries) {
+      const item = entry.item;
+      const row = document.createElement('div');
+      row.className = 'entry-card archive-row';
+      const metaParts = [item.time, itemPlace(item)].filter(Boolean);
+      row.append(createEntryMain(item, metaParts.join(' · ')));
+      const stateTag = document.createElement('span');
+      stateTag.className = 'state-tag';
+      stateTag.textContent = ARCHIVE_STATE_LABELS[entry.state] || '';
+      row.append(stateTag);
+
+      if (item.type === '待办') {
+        row.append(actionButton('恢复', () => {
+          mutateItem(item.id, CBCore.applyRestore(item), () => setStatus(`已恢复「${item.title}」`));
+        }));
+      }
+      const deleteBtn = document.createElement('button');
+      deleteBtn.type = 'button';
+      deleteBtn.className = 'entry-done-btn';
+      deleteBtn.textContent = '删除';
+      deleteBtn.disabled = state.offline || state.readOnly;
+      attachTwoStepDelete(deleteBtn, () => deleteItem(item));
+      row.append(deleteBtn);
+      listEl.append(row);
+    }
+    groupEl.append(listEl);
+    container.append(groupEl);
+  }
+
+  if (total === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty-hint archive-empty';
+    empty.textContent = '暂无归档事项';
+    container.append(empty);
+  } else if (total > shown) {
+    const moreBtn = document.createElement('button');
+    moreBtn.type = 'button';
+    moreBtn.className = 'ghost-btn';
+    moreBtn.textContent = '加载更多';
+    moreBtn.addEventListener('click', () => {
+      state.archiveLimit += 200;
+      renderAll();
+    });
+    const moreWrap = document.createElement('div');
+    moreWrap.className = 'archive-foot';
+    moreWrap.append(moreBtn);
+    container.append(moreWrap);
+  }
+
+  const foot = document.createElement('div');
+  foot.className = 'subview-foot';
+  const cleanupBtn = document.createElement('button');
+  cleanupBtn.type = 'button';
+  cleanupBtn.className = 'danger-btn';
+  cleanupBtn.textContent = '清理 90 天前的归档';
+  cleanupBtn.disabled = state.offline || state.readOnly;
+  attachCleanupButton(cleanupBtn);
+  foot.append(cleanupBtn);
+  container.append(foot);
+
+  if (state.archiveFocusIso) {
+    const focusIso = state.archiveFocusIso;
+    state.archiveFocusIso = null;
+    requestAnimationFrame(() => {
+      const target = container.querySelector(`[data-archive-iso="${focusIso}"]`);
+      if (target) target.scrollIntoView({ block: 'start' });
+    });
+  }
+}
+
 function renderTabs() {
   const isDay = state.sidebarTab === 'day';
   $('tabDay').classList.toggle('active', isDay);
   $('tabWeek').classList.toggle('active', !isDay);
-  $('dayView').classList.toggle('hidden', !isDay);
-  $('weekView').classList.toggle('hidden', isDay);
+  const inSubview = state.subview !== null;
+  $('dayView').classList.toggle('hidden', !isDay || inSubview);
+  $('weekView').classList.toggle('hidden', isDay || inSubview);
+  $('reviewView').classList.toggle('hidden', state.subview !== 'review');
+  $('archiveView').classList.toggle('hidden', state.subview !== 'archive');
 }
 
 function renderNativeControls() {
@@ -552,6 +1122,7 @@ function renderNativeControls() {
 }
 
 function renderAll() {
+  checkReviewPrompt();
   renderNativeControls();
   renderModeBadge();
   renderSidebarHeader();
@@ -559,6 +1130,9 @@ function renderAll() {
   renderCalendar();
   renderDayList();
   renderWeekView();
+  renderReviewBanner();
+  renderReviewView();
+  renderArchiveView();
 }
 
 // Entry CRUD
@@ -571,6 +1145,16 @@ function syncEntryEndState() {
   } else {
     end.disabled = false;
   }
+}
+
+function resetDeleteConfirm() {
+  if (state.deleteConfirmTimer) {
+    clearTimeout(state.deleteConfirmTimer);
+    state.deleteConfirmTimer = null;
+  }
+  state.deleteConfirmArmed = false;
+  const btn = $('deleteEntryBtn');
+  if (btn) btn.textContent = '删除';
 }
 
 function openEntryModal(item = null, defaultType = '日程') {
@@ -591,6 +1175,7 @@ function openEntryModal(item = null, defaultType = '日程') {
   $('entryEnd').value = CBCore.formatMinutes(CBCore.itemEnd(item));
   $('entryPlace').value = itemPlace(item || {});
   $('deleteEntryBtn').classList.toggle('hidden', !item);
+  resetDeleteConfirm();
   syncEntryEndState();
 
   $('entryBackdrop').classList.remove('hidden');
@@ -601,6 +1186,7 @@ function openEntryModal(item = null, defaultType = '日程') {
 function closeEntryModal() {
   $('entryBackdrop').classList.add('hidden');
   state.editing = null;
+  resetDeleteConfirm();
   postNative({ action: 'setModalOpen', open: false });
 }
 
@@ -676,6 +1262,7 @@ async function saveEntry(event) {
 }
 
 async function deleteItem(item) {
+  if (!item) return;
   if (state.readOnly) {
     setStatus('请升级应用', true);
     return;
@@ -684,16 +1271,23 @@ async function deleteItem(item) {
     setStatus('离线时不能删除。', true);
     return;
   }
+  const timer = state.undoTimers.get(item.id);
+  if (timer) {
+    clearTimeout(timer);
+    state.undoTimers.delete(item.id);
+  }
+  state.recentDoneIds.delete(item.id);
   if (isLocalMode()) {
     state.items = state.items.filter((it) => it.id !== item.id);
     storeSet('demoItems', state.items);
     renderAll();
-    setStatus(item.type === '待办' ? `已完成「${item.title}」` : `已删除「${item.title}」`);
+    setStatus(`已删除「${item.title}」`);
     return;
   }
   try {
     await apiClient.remove(item.id);
     await syncItems();
+    setStatus(`已删除「${item.title}」`);
   } catch (err) {
     setStatus(err.message, true);
   }
@@ -1029,8 +1623,8 @@ $('todayBtn').addEventListener('click', () => {
 });
 $('quickAddTop').addEventListener('click', () => openEntryModal(null, '日程'));
 
-$('tabDay').addEventListener('click', () => { state.sidebarTab = 'day'; renderTabs(); });
-$('tabWeek').addEventListener('click', () => { state.sidebarTab = 'week'; renderTabs(); });
+$('tabDay').addEventListener('click', () => { state.sidebarTab = 'day'; state.subview = null; renderAll(); });
+$('tabWeek').addEventListener('click', () => { state.sidebarTab = 'week'; state.subview = null; renderAll(); });
 
 for (const btn of document.querySelectorAll('[data-add-type]')) {
   btn.addEventListener('click', () => openEntryModal(null, btn.dataset.addType));
@@ -1041,11 +1635,40 @@ $('cancelEntryBtn').addEventListener('click', closeEntryModal);
 $('entryForm').addEventListener('submit', saveEntry);
 $('entryStart').addEventListener('input', syncEntryEndState);
 $('deleteEntryBtn').addEventListener('click', () => {
-  if (state.editing) {
-    const target = state.editing;
-    closeEntryModal();
-    deleteItem(target);
+  if (!state.editing) return;
+  if (!state.deleteConfirmArmed) {
+    state.deleteConfirmArmed = true;
+    $('deleteEntryBtn').textContent = '确认删除';
+    if (state.deleteConfirmTimer) clearTimeout(state.deleteConfirmTimer);
+    state.deleteConfirmTimer = setTimeout(() => {
+      state.deleteConfirmArmed = false;
+      state.deleteConfirmTimer = null;
+      $('deleteEntryBtn').textContent = '删除';
+    }, 3000);
+    return;
   }
+  if (state.deleteConfirmTimer) clearTimeout(state.deleteConfirmTimer);
+  state.deleteConfirmTimer = null;
+  state.deleteConfirmArmed = false;
+  const target = state.editing;
+  closeEntryModal();
+  deleteItem(target);
+});
+
+$('openReviewBtn').addEventListener('click', () => {
+  state.subview = 'review';
+  renderAll();
+});
+
+$('reviewBanner').addEventListener('click', () => {
+  state.subview = 'review';
+  renderAll();
+});
+
+$('archiveToggleBtn').addEventListener('click', () => {
+  state.subview = state.subview === 'archive' ? null : 'archive';
+  state.archiveFocusIso = null;
+  renderAll();
 });
 
 $('closeSettingsModal').addEventListener('click', closeSettingsModal);

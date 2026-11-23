@@ -65,10 +65,12 @@
 
       <div class="view-tabs" role="tablist">
         <button id="tabDay" class="tab-btn active" type="button" role="tab">当天安排</button>
-        <button id="tabWeek" class="tab-btn" type="button" role="tab">未来 7 天日程</button>
+        <button id="tabWeek" class="tab-btn" type="button" role="tab">未来 7 天</button>
       </div>
 
       <div id="dayView" class="sidebar-scroll">
+        <div id="reviewBanner" class="review-banner hidden"></div>
+
         <section class="cat-group" data-type="课程">
           <div class="cat-header">
             <div class="cat-title"><span class="cat-dot course"></span>课程<span id="countCourse" class="cat-count">0</span></div>
@@ -85,6 +87,14 @@
           <div id="listTodo" class="cat-list"></div>
         </section>
 
+        <section id="groupPending" class="cat-group hidden" data-type="待处理">
+          <div class="cat-header">
+            <div class="cat-title"><span class="cat-dot todo"></span>待处理<span id="countPending" class="cat-count">0</span></div>
+            <button id="openReviewBtn" class="pill-btn" type="button">去回顾</button>
+          </div>
+          <div id="listPending" class="cat-list"></div>
+        </section>
+
         <section class="cat-group" data-type="日程">
           <div class="cat-header">
             <div class="cat-title"><span class="cat-dot schedule"></span>日程<span id="countSchedule" class="cat-count">0</span></div>
@@ -95,9 +105,12 @@
       </div>
 
       <div id="weekView" class="sidebar-scroll hidden"></div>
+      <div id="reviewView" class="sidebar-scroll hidden"></div>
+      <div id="archiveView" class="sidebar-scroll hidden"></div>
 
       <footer class="sidebar-footer">
         <span id="statusText" class="status-text">演示模式 · 移开鼠标自动收缩到右边缘</span>
+        <button id="archiveToggleBtn" class="pill-btn" type="button">归档</button>
         <button id="connectBannerBtn" class="link-btn" type="button">连接云端</button>
       </footer>
     </aside>
