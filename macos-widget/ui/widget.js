@@ -1,4 +1,5 @@
 const $ = (id) => document.getElementById(id);
+const { localDate, parseDate, addDays, makeUuid32, tokenUserId } = CBCore;
 
 const DEFAULT_CONFIG = {
   url: 'https://samnpjgnvtearyeejjtg.supabase.co',
@@ -41,24 +42,6 @@ function parseJsonSafe(raw, fallback) {
   try { return JSON.parse(raw); } catch { return fallback; }
 }
 
-function localDate(date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-}
-
-function parseDate(iso) {
-  const [y, m, d] = iso.split('-').map(Number);
-  return new Date(y, m - 1, d);
-}
-
-function addDays(baseDate, offset) {
-  return new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate() + offset);
-}
-
-function makeUuid32() {
-  if (crypto && crypto.randomUUID) return crypto.randomUUID().replaceAll('-', '');
-  return Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
-}
-
 function isPlaceholderConfig(cfg) {
   if (!cfg || !cfg.url || !cfg.key) return true;
   return cfg.url.includes('YOUR_PROJECT') || cfg.key.includes('REPLACE_WITH_YOUR_KEY');
@@ -91,7 +74,9 @@ const state = {
   session: null,
   mode: 'demo',
   items: [],
+  meta: CBCore.defaultMeta(),
   offline: false,
+  readOnly: false,
   view: new Date(),
   selected: localDate(new Date()),
   todayIso: localDate(new Date()),
@@ -161,49 +146,26 @@ window.__nativeHttpCallback = function (res) {
   resolver(res);
 };
 
-async function rawRequest(path, { method = 'GET', body, token, config = state.config, extraHeaders = {} } = {}) {
-  const headers = { apikey: config.key, Accept: 'application/json', ...extraHeaders };
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
-  if (token) headers.Authorization = `Bearer ${token}`;
-  const url = `${config.url}${path}`;
-  const bodyStr = body === undefined ? undefined : JSON.stringify(body);
-
-  let status = 0;
-  let text = '';
-
-  if (isNative) {
-    const id = `req_${++httpCounter}_${Date.now()}`;
-    const res = await new Promise((resolve) => {
-      pendingHttp.set(id, resolve);
-      postNative({ action: 'httpRequest', id, url, method, headers, body: bodyStr });
+function nativeTransport(url, options = {}) {
+  if (!isNative) return fetch(url, options);
+  const id = `req_${++httpCounter}_${Date.now()}`;
+  return new Promise((resolve, reject) => {
+    pendingHttp.set(id, (res) => {
+      if (res.networkError) {
+        reject(new Error('网络连接失败，请检查网络后重试。'));
+        return;
+      }
+      resolve({ status: res.status || 0, text: res.text || '' });
     });
-    if (res.networkError) throw new Error('网络连接失败，请检查网络后重试。');
-    status = res.status || 0;
-    text = res.text || '';
-  } else {
-    let response;
-    try {
-      response = await fetch(url, { method, headers, body: bodyStr });
-    } catch {
-      throw new Error('网络连接失败，请检查网络后重试。');
-    }
-    status = response.status;
-    text = await response.text();
-  }
-
-  let data = null;
-  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
-  if (status < 200 || status >= 300) {
-    throw new Error(data?.msg || data?.message || data?.error_description || `请求失败（${status}）`);
-  }
-  return data;
-}
-
-function tokenUserId(token) {
-  try {
-    const encoded = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-    return JSON.parse(atob(encoded)).sub || null;
-  } catch { return null; }
+    postNative({
+      action: 'httpRequest',
+      id,
+      url,
+      method: options.method || 'GET',
+      headers: options.headers || {},
+      body: options.body,
+    });
+  });
 }
 
 function saveSession(data, emailHint) {
@@ -217,60 +179,19 @@ function saveSession(data, emailHint) {
   storeSet('session', state.session);
 }
 
-async function refreshSession() {
-  if (!state.session?.refresh_token) throw new Error('登录已过期，请重新登录。');
-  const data = await rawRequest('/auth/v1/token?grant_type=refresh_token', {
-    method: 'POST',
-    body: { refresh_token: state.session.refresh_token },
-  });
-  saveSession(data);
-}
-
-async function api(path, options = {}) {
-  if (!state.session) throw new Error('请先登录云端账号。');
-  if (Date.now() / 1000 > state.session.expires_at - 60) await refreshSession();
-  try {
-    return await rawRequest(path, { ...options, token: state.session.access_token });
-  } catch (error) {
-    if (/401|JWT|token/i.test(error.message)) {
-      await refreshSession();
-      return rawRequest(path, { ...options, token: state.session.access_token });
-    }
-    throw error;
-  }
-}
-
-async function fetchRemoteItems() {
-  const all = [];
-  let offset = 0;
-  while (true) {
-    const rows = await api(`/rest/v1/calendar_items?select=id,payload&order=id.asc&limit=1000&offset=${offset}`);
-    all.push(...rows);
-    if (rows.length < 1000) break;
-    offset += rows.length;
-  }
-  return all.map((row) => ({ ...row.payload, id: row.id })).filter((item) => item.id && item.date);
-}
-
-async function maintainRemote(items) {
-  const today = localDate(new Date());
-  let changed = false;
-  for (const item of items) {
-    if (item.date >= today) continue;
-    if (item.type === '待办' && !item.done) {
-      const updated = { ...item, date: today };
-      await api(`/rest/v1/calendar_items?id=eq.${encodeURIComponent(item.id)}`, {
-        method: 'PATCH',
-        body: { payload: updated },
-      });
-      changed = true;
-    } else if (item.type === '日程') {
-      await api(`/rest/v1/calendar_items?id=eq.${encodeURIComponent(item.id)}`, { method: 'DELETE' });
-      changed = true;
-    }
-  }
-  return changed;
-}
+const apiClient = CBCore.createApi({
+  getConfig: () => state.config,
+  getSession: () => state.session,
+  saveSession: (data) => saveSession(data),
+  transport: nativeTransport,
+  getLatestPayload: (id) => {
+    const found = state.items.find((it) => it.id === id);
+    if (!found) return undefined;
+    const copy = { ...found };
+    delete copy.id;
+    return copy;
+  },
+});
 
 function setStatus(message, isError = false) {
   const el = $('statusText');
@@ -283,47 +204,22 @@ function isLocalMode() {
 }
 
 function academicWeekLabel(date) {
-  const termStart = new Date(2026, 7, 31); // 2026-08-31 Week 1 Mon
-  const diffDays = Math.floor((new Date(date.getFullYear(), date.getMonth(), date.getDate()) - termStart) / 86400000);
-  if (diffDays < 0) return '';
-  const week = Math.floor(diffDays / 7) + 1;
-  if (week >= 1 && week <= 20) return `第${week}周`;
-  return '';
-}
-
-function maintainLocal(items) {
-  const today = localDate(new Date());
-  let changed = false;
-  const kept = [];
-  for (const item of items) {
-    if (item.date < today) {
-      if (item.type === '待办' && !item.done) {
-        kept.push({ ...item, date: today });
-        changed = true;
-        continue;
-      }
-      if (item.type === '日程') {
-        changed = true;
-        continue;
-      }
-    }
-    kept.push(item);
-  }
-  return { items: kept, changed };
+  return CBCore.termWeekLabel(state.meta, date);
 }
 
 async function syncItems() {
   if (isLocalMode()) {
-    const res = maintainLocal(state.items);
-    if (res.changed) {
-      state.items = res.items;
-      storeSet('demoItems', state.items);
-    }
+    state.meta = parseJsonSafe(storeGet('meta'), null) || state.meta || CBCore.defaultMeta();
+    state.readOnly = Number(state.meta?.schemaVersion || 2) > CBCore.SUPPORTED_SCHEMA;
     renderAll();
-    const courseCount = state.items.filter((it) => it.type === '课程').length;
-    setStatus(state.mode === 'local'
-      ? `已同步本地课表（${courseCount} 节）· 移开鼠标自动收缩`
-      : '演示模式 · 移开鼠标自动收缩到右边缘');
+    if (state.readOnly) {
+      setStatus('请升级应用', true);
+    } else {
+      const courseCount = state.items.filter((it) => it.type === '课程').length;
+      setStatus(state.mode === 'local'
+        ? `已同步本地课表（${courseCount} 节）· 移开鼠标自动收缩`
+        : '演示模式 · 移开鼠标自动收缩到右边缘');
+    }
     return;
   }
   if (!state.session) {
@@ -333,18 +229,23 @@ async function syncItems() {
   }
   setStatus('正在同步云端…');
   try {
-    let items = await fetchRemoteItems();
-    if (await maintainRemote(items)) items = await fetchRemoteItems();
-    state.items = items;
+    const fetched = await apiClient.fetchAll();
+    const meta = await apiClient.ensureMeta(fetched.meta);
+    state.items = fetched.items;
+    state.meta = meta || CBCore.defaultMeta();
     state.offline = false;
-    storeSet('cache', items);
+    storeSet('cache', state.items);
+    storeSet('meta', state.meta);
     const t = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
     setStatus(`已同步 · ${t}`);
   } catch (err) {
     state.items = parseJsonSafe(storeGet('cache'), []);
+    state.meta = parseJsonSafe(storeGet('meta'), null) || CBCore.defaultMeta();
     state.offline = true;
     setStatus(`离线缓存 · ${err.message}`, true);
   }
+  state.readOnly = Number(state.meta?.schemaVersion || 2) > CBCore.SUPPORTED_SCHEMA;
+  if (state.readOnly) setStatus('请升级应用', true);
   renderAll();
 }
 
@@ -399,7 +300,7 @@ function renderCalendar() {
   const count = Math.ceil((first + days) / 7) * 7;
   const grid = $('monthGrid');
   grid.replaceChildren();
-  const today = localDate(new Date());
+  const today = state.todayIso;
 
   for (let i = 0; i < count; i++) {
     const date = new Date(y, m, i - first + 1);
@@ -425,12 +326,13 @@ function renderCalendar() {
 
     const chips = document.createElement('div');
     chips.className = 'day-chips';
-    const dayItems = state.items
-      .filter((it) => it.date === iso)
-      .sort((a, b) => {
-        const order = { 课程: 0, 待办: 1, 日程: 2 };
-        return (order[a.type] ?? 9) - (order[b.type] ?? 9) || (a.time || '').localeCompare(b.time || '');
-      });
+    const dayData = CBCore.dayItems(state.items, iso, state.todayIso);
+    const dayItems = [
+      ...dayData.courses,
+      ...dayData.todos,
+      ...(iso === state.todayIso ? dayData.pending : []),
+      ...dayData.schedules,
+    ].sort(CBCore.byTime);
 
     for (const item of dayItems.slice(0, 3)) {
       const chip = document.createElement('div');
@@ -469,25 +371,32 @@ function renderSidebarHeader() {
   const isToday = state.selected === localDate(new Date());
   $('selectedTitle').textContent = `${date.getMonth() + 1}月${date.getDate()}日 · ${weekdays[date.getDay()]}${isToday ? '（今天）' : ''}`;
   const subParts = [];
-  if (weekLbl) subParts.push(`2026秋 ${weekLbl}`);
+  if (weekLbl) subParts.push(`${state.meta?.termName || '2026秋'} ${weekLbl}`);
   if (lunar.label) subParts.push(`农历 ${lunar.label}`);
   subParts.push('点击事项编辑');
   $('selectedSubtitle').textContent = subParts.join(' · ');
 }
 
 function renderDayList() {
+  const dayData = CBCore.dayItems(state.items, state.selected, state.todayIso);
   const map = {
-    课程: { list: $('listCourse'), count: $('countCourse'), empty: '今天没有课程' },
-    待办: { list: $('listTodo'), count: $('countTodo'), empty: '暂无待办事项' },
-    日程: { list: $('listSchedule'), count: $('countSchedule'), empty: '暂无日程安排' },
+    课程: { list: $('listCourse'), count: $('countCourse'), empty: '今天没有课程', items: dayData.courses },
+    待办: {
+      list: $('listTodo'),
+      count: $('countTodo'),
+      empty: '暂无待办事项',
+      items: dayData.past
+        ? []
+        : [...dayData.todos, ...(state.selected === state.todayIso ? dayData.pending : [])].sort(CBCore.byTime),
+    },
+    日程: { list: $('listSchedule'), count: $('countSchedule'), empty: '暂无日程安排', items: dayData.past ? [] : dayData.schedules },
   };
 
   for (const type of ['课程', '待办', '日程']) {
-    const { list, count, empty } = map[type];
+    const { list, count, empty, items } = map[type];
     list.replaceChildren();
-    const items = state.items
-      .filter((it) => it.date === state.selected && it.type === type)
-      .sort((a, b) => (a.time || '').localeCompare(b.time || '') || a.title.localeCompare(b.title, 'zh-CN'));
+    const group = list.closest('.cat-group');
+    if (group) group.classList.toggle('hidden', dayData.past && type !== '课程');
 
     count.textContent = String(items.length);
     if (!items.length) {
@@ -495,7 +404,6 @@ function renderDayList() {
       hint.className = 'empty-hint';
       hint.textContent = empty;
       list.append(hint);
-      continue;
     }
 
     for (const item of items) {
@@ -510,6 +418,7 @@ function renderDayList() {
       main.append(title);
 
       const metaParts = [item.time, itemPlace(item)].filter(Boolean);
+      if (type === '待办' && item.date < state.selected) metaParts.unshift(item.date);
       if (metaParts.length) {
         const meta = document.createElement('div');
         meta.className = 'entry-meta';
@@ -521,6 +430,7 @@ function renderDayList() {
       quickBtn.type = 'button';
       quickBtn.className = 'entry-done-btn';
       quickBtn.textContent = type === '待办' ? '✓ 完成' : '删除';
+      quickBtn.disabled = state.offline || state.readOnly;
       quickBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         deleteItem(item);
@@ -530,6 +440,13 @@ function renderDayList() {
       card.append(main, quickBtn);
       list.append(card);
     }
+
+    if (type === '课程' && dayData.past && dayData.archivedCount > 0) {
+      const archived = document.createElement('div');
+      archived.className = 'empty-hint';
+      archived.textContent = `这一天有 ${dayData.archivedCount} 条已归档`;
+      list.append(archived);
+    }
   }
 }
 
@@ -537,7 +454,7 @@ function renderWeekView() {
   const container = $('weekView');
   container.replaceChildren();
   const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-  const base = new Date();
+  const base = parseDate(state.todayIso);
 
   for (let offset = 1; offset <= 7; offset++) {
     const d = addDays(base, offset);
@@ -560,9 +477,8 @@ function renderWeekView() {
     head.append(addBtn);
     block.append(head);
 
-    const items = state.items
-      .filter((it) => it.date === iso && it.type === '日程')
-      .sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+    const dayData = CBCore.dayItems(state.items, iso, state.todayIso);
+    const items = dayData.schedules;
 
     if (!items.length) {
       const empty = document.createElement('div');
@@ -646,7 +562,22 @@ function renderAll() {
 }
 
 // Entry CRUD
+function syncEntryEndState() {
+  const start = $('entryStart').value;
+  const end = $('entryEnd');
+  if (!start) {
+    end.value = '';
+    end.disabled = true;
+  } else {
+    end.disabled = false;
+  }
+}
+
 function openEntryModal(item = null, defaultType = '日程') {
+  if (state.readOnly) {
+    setStatus('请升级应用', true);
+    return;
+  }
   if (state.mode === 'cloud' && state.offline) {
     setStatus('离线时只能查看，联网后再编辑。', true);
     return;
@@ -656,10 +587,11 @@ function openEntryModal(item = null, defaultType = '日程') {
   $('entryType').value = item?.type || defaultType;
   $('entryDate').value = item?.date || state.selected;
   $('entryTitle').value = item?.title || '';
-  $('entryStart').value = item?.startTime || (item?.time || '').split('-')[0] || '';
-  $('entryEnd').value = item?.endTime || (item?.time || '').split('-')[1] || '';
+  $('entryStart').value = CBCore.formatMinutes(CBCore.itemStart(item));
+  $('entryEnd').value = CBCore.formatMinutes(CBCore.itemEnd(item));
   $('entryPlace').value = itemPlace(item || {});
   $('deleteEntryBtn').classList.toggle('hidden', !item);
+  syncEntryEndState();
 
   $('entryBackdrop').classList.remove('hidden');
   postNative({ action: 'setModalOpen', open: true });
@@ -674,9 +606,13 @@ function closeEntryModal() {
 
 async function saveEntry(event) {
   event.preventDefault();
+  if (state.readOnly) {
+    setStatus('请升级应用', true);
+    return;
+  }
   const start = $('entryStart').value;
   const end = $('entryEnd').value;
-  if (end && (!start || end <= start)) {
+  if ((!start && end) || (start && end && CBCore.parseMinutes(end) <= CBCore.parseMinutes(start))) {
     setStatus('结束时间需要晚于开始时间。', true);
     return;
   }
@@ -684,22 +620,23 @@ async function saveEntry(event) {
   if (!title) return;
 
   const id = state.editing?.id || makeUuid32();
-  const item = {
-    ...(state.editing || {}),
-    id,
+  const payload = {
+    ...(state.editing ? { ...state.editing } : {}),
     date: $('entryDate').value,
     type: $('entryType').value,
     title,
     startTime: start,
-    endTime: end,
-    time: end ? `${start}-${end}` : start,
+    endTime: start ? end : '',
+    time: CBCore.buildTime(start, start ? end : ''),
     place: $('entryPlace').value.trim(),
     done: state.editing?.done || false,
   };
-  if ('room' in item) item.room = item.place;
-  if ('display' in item) item.display = item.title;
+  delete payload.id;
+  if (state.editing && 'room' in state.editing) payload.room = payload.place;
+  if (state.editing && 'display' in state.editing) payload.display = payload.title;
 
   if (isLocalMode()) {
+    const item = { ...payload, id };
     if (state.editing) {
       state.items = state.items.map((it) => (it.id === id ? item : it));
     } else {
@@ -707,35 +644,42 @@ async function saveEntry(event) {
     }
     storeSet('demoItems', state.items);
     closeEntryModal();
-    state.selected = item.date;
-    state.view = parseDate(item.date);
+    state.selected = payload.date;
+    state.view = parseDate(payload.date);
     renderAll();
     setStatus(state.mode === 'local' ? '已保存到本地日历' : '演示模式 · 已更新本地演示数据');
     return;
   }
 
+  let previousItems = null;
   try {
     if (state.editing) {
-      await api(`/rest/v1/calendar_items?id=eq.${encodeURIComponent(id)}`, {
-        method: 'PATCH',
-        body: { payload: item },
-      });
+      previousItems = state.items;
+      state.items = state.items.map((it) => (it.id === id ? { ...it, ...payload } : it));
+      await apiClient.enqueueWrite(id, () => apiClient.update(id, payload));
     } else {
-      await api('/rest/v1/calendar_items', {
-        method: 'POST',
-        body: { id, payload: item },
-      });
+      await apiClient.create(id, payload);
     }
     closeEntryModal();
-    state.selected = item.date;
-    state.view = parseDate(item.date);
+    state.selected = payload.date;
+    state.view = parseDate(payload.date);
     await syncItems();
   } catch (err) {
+    if (previousItems) state.items = previousItems;
+    if (state.editing && err.code === 'gone') {
+      setStatus('该事项已在其他设备删除', true);
+      await syncItems();
+      return;
+    }
     setStatus(err.message, true);
   }
 }
 
 async function deleteItem(item) {
+  if (state.readOnly) {
+    setStatus('请升级应用', true);
+    return;
+  }
   if (state.mode === 'cloud' && state.offline) {
     setStatus('离线时不能删除。', true);
     return;
@@ -748,7 +692,7 @@ async function deleteItem(item) {
     return;
   }
   try {
-    await api(`/rest/v1/calendar_items?id=eq.${encodeURIComponent(item.id)}`, { method: 'DELETE' });
+    await apiClient.remove(item.id);
     await syncItems();
   } catch (err) {
     setStatus(err.message, true);
@@ -762,12 +706,82 @@ function setSettingsMsg(text, kind = '') {
   el.className = `settings-msg${kind ? ` ${kind}` : ''}`;
 }
 
+function setTermSettingsMsg(text, kind = '') {
+  const el = $('termSettingsMsg');
+  el.textContent = text;
+  el.className = `settings-msg${kind ? ` ${kind}` : ''}`;
+}
+
+async function saveTermSettings() {
+  if (state.readOnly) {
+    setTermSettingsMsg('请升级应用', 'error');
+    return;
+  }
+  const termName = $('termNameInput').value.trim();
+  const termStart = $('termStartInput').value;
+  const termWeeks = Number($('termWeeksInput').value);
+  if (!termName || termName.length > 12) {
+    setTermSettingsMsg('学期名称需为 1–12 个字', 'error');
+    return;
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(termStart)) {
+    setTermSettingsMsg('学期第一天格式应为 YYYY-MM-DD', 'error');
+    return;
+  }
+  const [year, month, day] = termStart.split('-').map(Number);
+  const parsedStart = new Date(year, month - 1, day);
+  if (
+    parsedStart.getFullYear() !== year ||
+    parsedStart.getMonth() !== month - 1 ||
+    parsedStart.getDate() !== day
+  ) {
+    setTermSettingsMsg('学期第一天不是有效日期', 'error');
+    return;
+  }
+  if (!Number.isInteger(termWeeks) || termWeeks < 1 || termWeeks > 30) {
+    setTermSettingsMsg('学期周数需为 1–30 的整数', 'error');
+    return;
+  }
+  const updatedMeta = {
+    ...(state.meta || CBCore.defaultMeta()),
+    type: 'meta',
+    termName,
+    termStart,
+    termWeeks,
+  };
+  if (isLocalMode()) {
+    state.meta = updatedMeta;
+    storeSet('meta', updatedMeta);
+    renderAll();
+    setTermSettingsMsg('学期设置已保存（本地）', 'ok');
+    return;
+  }
+  try {
+    const mId = CBCore.metaId(state.session?.user_id || tokenUserId(state.session?.access_token || ''));
+    await apiClient.update(mId, updatedMeta);
+    state.meta = updatedMeta;
+    storeSet('meta', updatedMeta);
+    renderAll();
+    setTermSettingsMsg('学期设置已保存', 'ok');
+  } catch (err) {
+    setTermSettingsMsg(err.message, 'error');
+  }
+}
+
 function openSettingsModal() {
   $('cfgUrl').value = isPlaceholderConfig(state.config) ? '' : state.config.url;
   $('cfgKey').value = isPlaceholderConfig(state.config) ? '' : state.config.key;
   $('authEmail').value = state.session?.email || '';
   $('authPassword').value = '';
   setSettingsMsg('');
+  $('termNameInput').value = state.meta?.termName || '2026秋';
+  $('termStartInput').value = state.meta?.termStart || '2026-08-31';
+  $('termWeeksInput').value = String(state.meta?.termWeeks || 20);
+  setTermSettingsMsg('');
+  $('termNameInput').disabled = state.readOnly;
+  $('termStartInput').disabled = state.readOnly;
+  $('termWeeksInput').disabled = state.readOnly;
+  $('saveTermBtn').disabled = state.readOnly;
 
   const loggedIn = state.mode === 'cloud' && Boolean(state.session);
   $('loggedInRow').classList.toggle('hidden', !loggedIn);
@@ -818,17 +832,17 @@ async function uploadLocalItemsToCloud() {
   });
   if (!valid.length) return 0;
 
-  const existing = await fetchRemoteItems();
-  const existingIds = new Set(existing.map((it) => it.id));
+  const existing = await apiClient.fetchAll();
+  const existingIds = new Set(existing.items.map((it) => it.id));
   const toUpload = valid.filter((it) => !existingIds.has(it.id));
   if (!toUpload.length) return 0;
 
   for (let i = 0; i < toUpload.length; i += 50) {
     const batch = toUpload.slice(i, i + 50).map((it) => ({ id: it.id, payload: it }));
-    await api('/rest/v1/calendar_items', {
+    await apiClient.request('/rest/v1/calendar_items', {
       method: 'POST',
       body: batch,
-      extraHeaders: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
     });
   }
   return toUpload.length;
@@ -839,14 +853,16 @@ async function handleCloudLogin(event) {
   const vals = readAndValidateCloudInputs();
   if (!vals) return;
   setSettingsMsg('正在连接并登录…');
+  const cfg = { url: vals.url, key: vals.key };
+  const previousConfig = state.config;
+  let authenticated = false;
+  state.config = cfg;
   try {
-    const cfg = { url: vals.url, key: vals.key };
-    const data = await rawRequest('/auth/v1/token?grant_type=password', {
+    const data = await apiClient.rawRequest('/auth/v1/token?grant_type=password', {
       method: 'POST',
       body: { email: vals.email, password: vals.password },
-      config: cfg,
     });
-    state.config = cfg;
+    authenticated = true;
     state.mode = 'cloud';
     storeSet('config', cfg);
     storeSet('mode', 'cloud');
@@ -859,6 +875,7 @@ async function handleCloudLogin(event) {
       setStatus(`云端同步完成 · 已自动上传 ${uploaded} 条本地课表/事项`);
     }
   } catch (err) {
+    if (!authenticated) state.config = previousConfig;
     setSettingsMsg(err.message, 'error');
   }
 }
@@ -867,17 +884,18 @@ async function handleCloudSignup() {
   const vals = readAndValidateCloudInputs();
   if (!vals) return;
   setSettingsMsg('正在提交注册…');
+  const cfg = { url: vals.url, key: vals.key };
+  const previousConfig = state.config;
+  state.config = cfg;
   try {
-    const cfg = { url: vals.url, key: vals.key };
-    await rawRequest('/auth/v1/signup', {
+    await apiClient.rawRequest('/auth/v1/signup', {
       method: 'POST',
       body: { email: vals.email, password: vals.password },
-      config: cfg,
     });
-    state.config = cfg;
     storeSet('config', cfg);
     setSettingsMsg('注册成功！请去邮箱点击验证链接，再回来点「保存并登录」。', 'ok');
   } catch (err) {
+    state.config = previousConfig;
     setSettingsMsg(err.message, 'error');
   }
 }
@@ -897,6 +915,9 @@ function handleLogout() {
   state.session = null;
   storeSet('session', null);
   storeSet('cache', null);
+  storeSet('meta', null);
+  state.meta = CBCore.defaultMeta();
+  state.readOnly = false;
   switchToDemoMode();
 }
 
@@ -933,6 +954,8 @@ function hydrateAndStart(initPayload) {
   if (savedMode === 'cloud' && !isPlaceholderConfig(state.config) && state.session) {
     state.mode = 'cloud';
     state.items = parseJsonSafe(storeGet('cache'), []);
+    state.meta = parseJsonSafe(storeGet('meta'), null) || CBCore.defaultMeta();
+    state.readOnly = Number(state.meta?.schemaVersion || 2) > CBCore.SUPPORTED_SCHEMA;
     renderAll();
     syncItems();
   } else if (savedMode === 'local') {
@@ -1016,6 +1039,7 @@ for (const btn of document.querySelectorAll('[data-add-type]')) {
 $('closeEntryModal').addEventListener('click', closeEntryModal);
 $('cancelEntryBtn').addEventListener('click', closeEntryModal);
 $('entryForm').addEventListener('submit', saveEntry);
+$('entryStart').addEventListener('input', syncEntryEndState);
 $('deleteEntryBtn').addEventListener('click', () => {
   if (state.editing) {
     const target = state.editing;
@@ -1029,6 +1053,7 @@ $('cloudConfigForm').addEventListener('submit', handleCloudLogin);
 $('signupBtn').addEventListener('click', handleCloudSignup);
 $('useDemoBtn').addEventListener('click', switchToDemoMode);
 $('logoutBtn').addEventListener('click', handleLogout);
+$('saveTermBtn').addEventListener('click', saveTermSettings);
 
 $('hoverExpandToggle').addEventListener('change', (e) => {
   state.hoverExpand = e.target.checked;

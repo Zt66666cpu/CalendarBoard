@@ -16,6 +16,7 @@ swiftc -O -swift-version 5 \
   -o "$APP/Contents/MacOS/CalendarBoard"
 
 cp "$DIR/Info.plist" "$APP/Contents/Info.plist"
+cp "$DIR/../web/core.js" "$DIR/ui/core.js"
 cp -R "$DIR/ui/." "$APP/Contents/Resources/ui/"
 
 codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || true

@@ -181,6 +181,30 @@
       </div>
 
       <div class="settings-section">
+        <div class="section-label">学期设置</div>
+        <div class="form-row-2">
+          <label>
+            学期名称（1–12 个字）
+            <input id="termNameInput" type="text" maxlength="12" placeholder="例如：2026秋">
+          </label>
+          <label>
+            学期第一天
+            <input id="termStartInput" type="date">
+          </label>
+        </div>
+        <div class="form-row-2" style="margin-top:8px;">
+          <label>
+            学期周数（1–30）
+            <input id="termWeeksInput" type="number" min="1" max="30" value="20">
+          </label>
+          <div style="display:flex; align-items:flex-end; justify-content:flex-end;">
+            <button id="saveTermBtn" class="ghost-btn" type="button">保存学期设置</button>
+          </div>
+        </div>
+        <div id="termSettingsMsg" class="settings-msg"></div>
+      </div>
+
+      <div class="settings-section">
         <div class="section-label">Supabase 云端连接（与网页版 / 安卓同步）</div>
         <form id="cloudConfigForm" class="form-stack compact">
           <label>
@@ -217,6 +241,7 @@
     </div>
   </div>
 
+  <script src="core.js"></script>
   <script src="widget.js"></script>
 </body>
 </html>

@@ -4,15 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#364355">
-  <meta name="description" content="课程、日程与待办，和 Windows 桌面日历同步。">
+  <meta name="description" content="课程、日程与待办，多端同步。">
   <title>我的课表日历</title>
   <link rel="stylesheet" href="styles.css">
+  <script src="core.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
   <main class="app">
     <header class="topbar">
-      <div><p class="eyebrow">CALENDAR BOARD</p><h1>我的课表日历</h1></div>
+      <div><h1>我的课表日历</h1></div>
       <button id="settingsButton" class="icon-button" type="button" aria-label="设置">⚙</button>
     </header>
 
@@ -39,7 +40,7 @@
     <div id="calendarApp" hidden>
       <section class="panel calendar-panel">
         <div class="month-header">
-          <div><p class="eyebrow">MONTH VIEW</p><h2 id="monthTitle"></h2></div>
+          <div><h2 id="monthTitle"></h2></div>
           <div class="month-controls"><button id="prevMonth" type="button" aria-label="上个月">‹</button><button id="todayButton" type="button">今天</button><button id="nextMonth" type="button" aria-label="下个月">›</button></div>
         </div>
         <div class="weekdays" aria-hidden="true"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>
@@ -47,7 +48,7 @@
       </section>
 
       <section class="day-section">
-        <div class="day-heading"><div><p class="eyebrow">SELECTED DAY</p><h2 id="dayTitle"></h2></div><button id="addButton" class="primary" type="button">＋ 添加</button></div>
+        <div class="day-heading"><div><h2 id="dayTitle"></h2></div><button id="addButton" class="primary" type="button">＋ 添加</button></div>
         <div id="dayItems"></div>
       </section>
     </div>

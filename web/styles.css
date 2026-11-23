@@ -1,4 +1,4 @@
-:root{font-family:"Microsoft YaHei",system-ui,-apple-system,sans-serif;color:#f8fafc;background:#1e2935;font-size:15px}
+:root{font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;color:#f8fafc;background:#1e2935;font-size:15px}
 *{box-sizing:border-box}
 body{margin:0;min-height:100vh;background:radial-gradient(circle at 85% 8%,#6d7188 0,transparent 33%),radial-gradient(circle at 10% 80%,#476275 0,transparent 38%),linear-gradient(150deg,#1b2b3c,#303544 62%,#1c2732)}
 button,input,select,textarea{font:inherit}

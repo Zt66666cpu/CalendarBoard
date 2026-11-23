@@ -1,8 +1,10 @@
 const $ = (id) => document.getElementById(id);
+const { localDate, parseDate, tokenUserId } = CBCore;
 const configKey = 'calendar-board-config-v1';
 const sessionKey = 'calendar-board-session-v1';
 const cacheKey = 'calendar-board-cache-v1';
 const userCachePrefix = 'calendar-board-cache-v2-';
+const userMetaCachePrefix = 'calendar-board-meta-v2-';
 const defaultConfig = {
   url: 'https://samnpjgnvtearyeejjtg.supabase.co',
   key: 'sb_publishable_x061oGvVUpjXv0PG1J-Kag_Voayt0Ux',
@@ -11,20 +13,16 @@ const state = {
   config: JSON.parse(localStorage.getItem(configKey) || 'null') || defaultConfig,
   session: JSON.parse(localStorage.getItem(sessionKey) || 'null'),
   items: [],
+  meta: CBCore.defaultMeta(),
   offline: false,
+  readOnly: false,
   view: new Date(),
   selected: localDate(new Date()),
+  todayIso: CBCore.localDate(new Date()),
   editing: null,
 };
 localStorage.removeItem(cacheKey); // Discard the old cache that was shared across accounts.
 
-function localDate(date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-}
-function parseDate(value) {
-  const [y, m, d] = value.split('-').map(Number);
-  return new Date(y, m - 1, d);
-}
 function showStatus(message, error = false) {
   $('status').textContent = message;
   $('status').classList.toggle('error', error);
@@ -34,24 +32,26 @@ function setPanel(name) {
   $('authPanel').hidden = name !== 'auth';
   $('calendarApp').hidden = name !== 'app';
 }
-function tokenUserId(token) {
-  try {
-    const encoded = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-    return JSON.parse(atob(encoded)).sub || null;
-  } catch { return null; }
-}
 function userCacheKey(session = state.session) {
   const userId = session?.user_id || tokenUserId(session?.access_token || '');
   return userId ? `${userCachePrefix}${userId}` : null;
 }
+function userMetaCacheKey(session = state.session) {
+  const userId = session?.user_id || tokenUserId(session?.access_token || '');
+  return userId ? `${userMetaCachePrefix}${userId}` : null;
+}
 function clearLocalAccount() {
   const key = userCacheKey();
   if (key) localStorage.removeItem(key);
+  const metaKey = userMetaCacheKey();
+  if (metaKey) localStorage.removeItem(metaKey);
   localStorage.removeItem(cacheKey); // Remove the old cache shared by every account.
   localStorage.removeItem(sessionKey);
   state.session = null;
   state.items = [];
+  state.meta = CBCore.defaultMeta();
   state.offline = false;
+  state.readOnly = false;
 }
 function saveSession(data) {
   state.session = {
@@ -62,91 +62,43 @@ function saveSession(data) {
   };
   localStorage.setItem(sessionKey, JSON.stringify(state.session));
 }
-async function rawRequest(path, { method = 'GET', body, token } = {}) {
-  const headers = { apikey: state.config.key, Accept: 'application/json' };
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
-  if (token) headers.Authorization = `Bearer ${token}`;
-  let response;
-  try {
-    response = await fetch(`${state.config.url}${path}`, {
-      method, headers, body: body === undefined ? undefined : JSON.stringify(body),
-    });
-  } catch {
-    throw new Error('网络连接失败，请检查网络后重试。');
-  }
-  const raw = await response.text();
-  let data;
-  try { data = raw ? JSON.parse(raw) : null; } catch { data = raw; }
-  if (!response.ok) throw new Error(data?.msg || data?.message || data?.error_description || `请求失败（${response.status}）`);
-  return data;
-}
-async function refreshSession() {
-  if (!state.session?.refresh_token) throw new Error('登录已过期，请重新登录。');
-  const data = await rawRequest('/auth/v1/token?grant_type=refresh_token', {
-    method: 'POST', body: { refresh_token: state.session.refresh_token },
-  });
-  saveSession(data);
-}
-async function api(path, options = {}) {
-  if (!state.session) throw new Error('请先登录。');
-  if (Date.now() / 1000 > state.session.expires_at - 60) await refreshSession();
-  try {
-    return await rawRequest(path, { ...options, token: state.session.access_token });
-  } catch (error) {
-    if (/401|JWT|token/i.test(error.message)) {
-      await refreshSession();
-      return rawRequest(path, { ...options, token: state.session.access_token });
-    }
-    throw error;
-  }
-}
-async function fetchItems() {
-  const all = [];
-  let offset = 0;
-  while (true) {
-    const rows = await api(`/rest/v1/calendar_items?select=id,payload&order=id.asc&limit=1000&offset=${offset}`);
-    all.push(...rows);
-    if (rows.length < 1000) break;
-    offset += rows.length;
-  }
-  return all.map((row) => ({ ...row.payload, id: row.id })).filter((item) => item.id && item.date);
-}
-async function maintainRemote(items) {
-  const today = localDate(new Date());
-  let changed = false;
-  for (const item of items) {
-    if (item.date >= today) continue;
-    if (item.type === '待办' && !item.done) {
-      const updated = { ...item, date: today };
-      await api(`/rest/v1/calendar_items?id=eq.${encodeURIComponent(item.id)}`, {
-        method: 'PATCH', body: { payload: updated },
-      });
-      changed = true;
-    } else if (item.type === '日程') {
-      await api(`/rest/v1/calendar_items?id=eq.${encodeURIComponent(item.id)}`, { method: 'DELETE' });
-      changed = true;
-    }
-  }
-  return changed;
-}
+const apiClient = CBCore.createApi({
+  getConfig: () => state.config,
+  getSession: () => state.session,
+  saveSession,
+  getLatestPayload: (id) => {
+    const found = state.items.find((it) => it.id === id);
+    if (!found) return undefined;
+    const copy = { ...found };
+    delete copy.id;
+    return copy;
+  },
+});
 async function loadItems() {
   const session = state.session;
   try {
-    let items = await fetchItems();
-    if (await maintainRemote(items)) items = await fetchItems();
+    const fetched = await apiClient.fetchAll();
+    const meta = await apiClient.ensureMeta(fetched.meta);
     if (!state.session || userCacheKey() !== userCacheKey(session)) return;
-    state.items = items;
+    state.items = fetched.items;
+    state.meta = meta || CBCore.defaultMeta();
     state.offline = false;
     const key = userCacheKey();
-    if (key) localStorage.setItem(key, JSON.stringify(items));
+    if (key) localStorage.setItem(key, JSON.stringify(state.items));
+    const metaKey = userMetaCacheKey();
+    if (metaKey) localStorage.setItem(metaKey, JSON.stringify(state.meta));
     showStatus(`已同步 · ${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`);
   } catch (error) {
     if (!state.session || userCacheKey() !== userCacheKey(session)) return;
     const key = userCacheKey();
+    const metaKey = userMetaCacheKey();
     state.items = key ? JSON.parse(localStorage.getItem(key) || '[]') : [];
+    state.meta = (metaKey ? JSON.parse(localStorage.getItem(metaKey) || 'null') : null) || CBCore.defaultMeta();
     state.offline = true;
     showStatus(`${error.message} 正显示上次保存的内容；离线时不能编辑。`, true);
   }
+  state.readOnly = Number(state.meta?.schemaVersion || 2) > CBCore.SUPPORTED_SCHEMA;
+  if (state.readOnly) showStatus('请升级应用', true);
   render();
 }
 function itemPlace(item) { return item.place || item.room || ''; }
@@ -165,7 +117,7 @@ function renderCalendar() {
   const count = Math.ceil((first + days) / 7) * 7;
   const grid = $('monthGrid');
   grid.replaceChildren();
-  const today = localDate(new Date());
+  const today = state.todayIso;
   for (let i = 0; i < count; i++) {
     const date = new Date(y, m, i - first + 1);
     const iso = localDate(date);
@@ -177,11 +129,9 @@ function renderCalendar() {
     if (iso === state.selected) button.classList.add('selected');
     button.append(make('span', 'number', String(date.getDate())));
     const dots = make('span', 'dots');
-    const dayItems = state.items.filter((item) => item.date === iso);
-    for (const type of ['课程', '待办', '日程']) {
-      if (dayItems.some((item) => item.type === type)) {
-        dots.append(make('span', `dot ${{ 课程: 'course', 待办: 'todo', 日程: 'schedule' }[type]}`));
-      }
+    const dotsState = CBCore.dayDots(state.items, iso, state.todayIso);
+    for (const type of ['course', 'todo', 'schedule']) {
+      if (dotsState[type]) dots.append(make('span', `dot ${type}`));
     }
     button.append(dots);
     button.addEventListener('click', () => {
@@ -195,28 +145,47 @@ function renderCalendar() {
 function renderDay() {
   const date = parseDate(state.selected);
   const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-  $('dayTitle').textContent = `${date.getMonth() + 1}月${date.getDate()}日 · ${weekdays[date.getDay()]}`;
+  const weekLbl = CBCore.termWeekLabel(state.meta, date);
+  const weekSuffix = weekLbl ? ` · ${state.meta?.termName || '2026秋'} ${weekLbl}` : '';
+  $('dayTitle').textContent = `${date.getMonth() + 1}月${date.getDate()}日 · ${weekdays[date.getDay()]}${weekSuffix}`;
   const container = $('dayItems');
   container.replaceChildren();
-  for (const type of ['课程', '待办', '日程']) {
+  const dayData = CBCore.dayItems(state.items, state.selected, state.todayIso);
+  const actionsDisabled = state.offline || state.readOnly;
+  const groups = [];
+  if (dayData.past) {
+    groups.push({ title: '课程', items: dayData.courses, empty: '这天没有课程', muted: true });
+  } else {
+    groups.push({ title: '课程', items: dayData.courses, empty: '这天没有课程' });
+    groups.push({ title: '待办', items: dayData.todos, empty: '这天没有待办' });
+    if (state.selected === state.todayIso && dayData.pending.length) {
+      groups.push({ title: '待处理', items: dayData.pending, empty: '' });
+    }
+    groups.push({ title: '日程', items: dayData.schedules, empty: '这天没有日程' });
+  }
+  for (const groupDef of groups) {
     const group = make('section', 'group');
-    group.append(make('h3', '', type));
-    const items = state.items.filter((item) => item.date === state.selected && item.type === type)
-      .sort((a, b) => (a.time || '').localeCompare(b.time || '') || a.title.localeCompare(b.title, 'zh-CN'));
-    if (!items.length) group.append(make('p', 'empty', `这天没有${type}`));
-    for (const item of items) {
+    group.append(make('h3', '', groupDef.title));
+    if (!groupDef.items.length && groupDef.empty) group.append(make('p', 'empty', groupDef.empty));
+    for (const item of groupDef.items) {
       const row = make('div', 'item');
+      if (groupDef.muted) row.style.opacity = '0.55';
       const main = make('div', 'item-main');
       main.append(make('div', 'item-title', item.title));
-      const meta = [item.time, itemPlace(item) ? `场地：${itemPlace(item)}` : ''].filter(Boolean).join(' · ');
-      if (meta) main.append(make('div', 'item-meta', meta));
+      const metaParts = [];
+      if (groupDef.title === '待处理') metaParts.push(item.date);
+      if (item.time) metaParts.push(item.time);
+      if (itemPlace(item)) metaParts.push(`场地：${itemPlace(item)}`);
+      if (metaParts.length) main.append(make('div', 'item-meta', metaParts.join(' · ')));
       row.append(main);
       const actions = make('div', 'item-actions');
       const edit = make('button', '', '编辑');
       edit.type = 'button';
+      edit.disabled = actionsDisabled;
       edit.addEventListener('click', () => openEntry(item));
-      const remove = make('button', '', type === '待办' ? '完成' : '删除');
+      const remove = make('button', '', item.type === '待办' ? '完成' : '删除');
       remove.type = 'button';
+      remove.disabled = actionsDisabled;
       remove.addEventListener('click', () => deleteEntry(item));
       actions.append(edit, remove);
       row.append(actions);
@@ -224,64 +193,107 @@ function renderDay() {
     }
     container.append(group);
   }
+  if (dayData.past && dayData.archivedCount > 0) {
+    container.append(make('p', 'muted', `这一天有 ${dayData.archivedCount} 条已归档 ›`));
+  }
 }
 function render() {
   renderCalendar();
   renderDay();
-  $('addButton').disabled = state.offline;
+  $('addButton').disabled = state.offline || state.readOnly;
+}
+function syncEndTimeState() {
+  const start = $('entryStart').value;
+  const end = $('entryEnd');
+  if (!start) {
+    end.value = '';
+    end.disabled = true;
+  } else {
+    end.disabled = false;
+  }
 }
 function openEntry(item = null) {
+  if (state.readOnly) { showStatus('请升级应用', true); return; }
   if (state.offline) { showStatus('离线时只能查看，联网后再编辑。', true); return; }
   state.editing = item;
   $('entryDialogTitle').textContent = item ? '编辑事项' : '新增事项';
   $('entryType').value = item?.type || '日程';
   $('entryDate').value = item?.date || state.selected;
   $('entryTitle').value = item?.title || '';
-  $('entryStart').value = item?.startTime || (item?.time || '').split('-')[0] || '';
-  $('entryEnd').value = item?.endTime || (item?.time || '').split('-')[1] || '';
+  $('entryStart').value = CBCore.formatMinutes(CBCore.itemStart(item));
+  $('entryEnd').value = CBCore.formatMinutes(CBCore.itemEnd(item));
   $('entryPlace').value = itemPlace(item || {});
+  syncEndTimeState();
   $('entryDialog').showModal();
 }
 async function saveEntry(event) {
   event.preventDefault();
+  if (state.readOnly) { showStatus('请升级应用', true); return; }
   const start = $('entryStart').value;
   const end = $('entryEnd').value;
-  if (end && (!start || end <= start)) { showStatus('结束时间需要晚于开始时间。', true); return; }
-  const id = state.editing?.id || crypto.randomUUID().replaceAll('-', '');
-  const item = {
-    ...(state.editing || {}), id,
+  if ((!start && end) || (start && end && CBCore.parseMinutes(end) <= CBCore.parseMinutes(start))) {
+    showStatus('结束时间需要晚于开始时间。', true);
+    return;
+  }
+  const id = state.editing?.id || CBCore.makeUuid32();
+  const payload = {
+    ...(state.editing ? { ...state.editing } : {}),
     date: $('entryDate').value,
     type: $('entryType').value,
     title: $('entryTitle').value.trim(),
-    startTime: start, endTime: end,
-    time: end ? `${start}-${end}` : start,
+    startTime: start,
+    endTime: start ? end : '',
+    time: CBCore.buildTime(start, start ? end : ''),
     place: $('entryPlace').value.trim(),
     done: state.editing?.done || false,
   };
-  if (!item.title) { showStatus('请填写内容。', true); return; }
-  if ('room' in item) item.room = item.place;
-  if ('display' in item) item.display = item.title;
+  delete payload.id;
+  if (state.editing && 'room' in state.editing) payload.room = payload.place;
+  if (state.editing && 'display' in state.editing) payload.display = payload.title;
+  if (!payload.title) { showStatus('请填写内容。', true); return; }
+  let previousItems = null;
   try {
     if (state.editing) {
-      await api(`/rest/v1/calendar_items?id=eq.${encodeURIComponent(id)}`, {
-        method: 'PATCH', body: { payload: item },
-      });
+      previousItems = state.items;
+      state.items = state.items.map((it) => (it.id === id ? { ...it, ...payload } : it));
+      await apiClient.enqueueWrite(id, () => apiClient.update(id, payload));
     } else {
-      await api('/rest/v1/calendar_items', { method: 'POST', body: { id, payload: item } });
+      await apiClient.create(id, payload);
     }
     $('entryDialog').close();
-    state.selected = item.date;
-    state.view = parseDate(item.date);
+    state.selected = payload.date;
+    state.view = parseDate(payload.date);
     await loadItems();
-  } catch (error) { showStatus(error.message, true); }
+  } catch (error) {
+    if (previousItems) state.items = previousItems;
+    if (state.editing && error.code === 'gone') {
+      showStatus('该事项已在其他设备删除', true);
+      await loadItems();
+      return;
+    }
+    showStatus(error.message, true);
+  }
 }
 async function deleteEntry(item) {
+  if (state.readOnly) { showStatus('请升级应用', true); return; }
   if (state.offline) { showStatus('离线时不能删除。', true); return; }
   if (!confirm(item.type === '待办' ? `完成并删除「${item.title}」？` : `删除「${item.title}」？`)) return;
   try {
-    await api(`/rest/v1/calendar_items?id=eq.${encodeURIComponent(item.id)}`, { method: 'DELETE' });
+    await apiClient.remove(item.id);
     await loadItems();
   } catch (error) { showStatus(error.message, true); }
+}
+function checkDateRollover() {
+  const nowIso = CBCore.localDate(new Date());
+  if (nowIso !== state.todayIso) {
+    const wasToday = state.selected === state.todayIso;
+    state.todayIso = nowIso;
+    if (wasToday) {
+      state.selected = nowIso;
+      state.view = CBCore.parseDate(nowIso);
+    }
+    render();
+  }
 }
 
 $('setupForm').addEventListener('submit', (event) => {
@@ -301,7 +313,7 @@ $('setupForm').addEventListener('submit', (event) => {
 $('authForm').addEventListener('submit', async (event) => {
   event.preventDefault();
   try {
-    const data = await rawRequest('/auth/v1/token?grant_type=password', {
+    const data = await apiClient.rawRequest('/auth/v1/token?grant_type=password', {
       method: 'POST', body: { email: $('email').value.trim(), password: $('password').value },
     });
     localStorage.removeItem(cacheKey);
@@ -317,7 +329,7 @@ $('signupButton').addEventListener('click', async () => {
     return;
   }
   try {
-    await rawRequest('/auth/v1/signup', {
+    await apiClient.rawRequest('/auth/v1/signup', {
       method: 'POST', body: { email: $('email').value.trim(), password: $('password').value },
     });
     showStatus('注册请求已提交。请查收验证邮件，验证后再登录。');
@@ -335,6 +347,7 @@ $('todayButton').addEventListener('click', () => { state.view = new Date(); stat
 $('addButton').addEventListener('click', () => openEntry());
 $('cancelEntry').addEventListener('click', () => $('entryDialog').close());
 $('entryForm').addEventListener('submit', saveEntry);
+$('entryStart').addEventListener('input', syncEndTimeState);
 
 if (new URLSearchParams(location.search).has('demo')) {
   const today = localDate(new Date());
@@ -353,5 +366,13 @@ if (new URLSearchParams(location.search).has('demo')) {
   if (state.session) { setPanel('app'); loadItems(); }
   else setPanel('auth');
 } else setPanel('setup');
-setInterval(() => { if (state.config && state.session && !document.hidden) loadItems(); }, 5 * 60 * 1000);
-
+setInterval(() => {
+  checkDateRollover();
+  if (state.config && state.session && !document.hidden) loadItems();
+}, 5 * 60 * 1000);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) {
+    checkDateRollover();
+    if (state.config && state.session) loadItems();
+  }
+});

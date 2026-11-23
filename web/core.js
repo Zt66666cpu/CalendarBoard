@@ -480,6 +480,13 @@
         } catch {
           data = raw;
         }
+      } else if (typeof result.text === 'string') {
+        const raw = result.text;
+        try {
+          data = raw ? JSON.parse(raw) : null;
+        } catch {
+          data = raw;
+        }
       } else if (typeof result.json === 'function') {
         data = await result.json();
       } else if (Object.prototype.hasOwnProperty.call(result, 'body')) {
