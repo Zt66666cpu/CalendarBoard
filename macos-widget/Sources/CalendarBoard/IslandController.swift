@@ -53,6 +53,8 @@ final class IslandController: ObservableObject, WebBridgeDelegate {
     private var promptTimer: Timer?
     private var localKeyMonitor: Any?
     private var globalKeyMonitor: Any?
+    private var localMouseMonitor: Any?
+    private var globalMouseMonitor: Any?
 
     init(timeline: IslandTimeline, webBridge: WebBridge) {
         self.timeline = timeline
@@ -63,6 +65,7 @@ final class IslandController: ObservableObject, WebBridgeDelegate {
         createNotchIfNeeded()
         applyTransitionConfiguration()
         installKeyMonitors()
+        installMouseMonitors()
 
         NotificationCenter.default.addObserver(
             self,
@@ -232,52 +235,129 @@ final class IslandController: ObservableObject, WebBridgeDelegate {
 
     // MARK: - Hover behaviour
 
-    private func handleHoverChange(_ hovering: Bool) {
-        if hovering {
-            collapseTimer?.invalidate()
-            collapseTimer = nil
+    private func installMouseMonitors() {
+        guard localMouseMonitor == nil, globalMouseMonitor == nil else { return }
 
-            if mode == .compact || isPromptMode {
-                expandTimer?.invalidate()
-                expandTimer = Timer(timeInterval: 0.20, repeats: false) { [weak self] _ in
-                    Task { @MainActor in
-                        guard let self else { return }
-                        self.expandTimer = nil
-                        guard self.mode == .compact || self.isPromptMode else { return }
-                        guard self.notch.isHovering else { return }
-                        self.expand(surface: .today, activateKeyboard: false, pin: false)
-                    }
-                }
-                RunLoop.main.add(expandTimer!, forMode: .common)
+        let mask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .otherMouseDragged]
+
+        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
+            Task { @MainActor in
+                self?.handleMouseLocation(NSEvent.mouseLocation)
             }
-        } else {
-            expandTimer?.invalidate()
-            expandTimer = nil
+            return event
+        }
 
-            guard mode == .expanded,
-                  !isModalOpen,
-                  !isInputFocused,
-                  !pinnedByHotkey else {
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] _ in
+            Task { @MainActor in
+                self?.handleMouseLocation(NSEvent.mouseLocation)
+            }
+        }
+    }
+
+    private func screen(containing point: NSPoint) -> NSScreen? {
+        NSScreen.screens.first { $0.frame.contains(point) }
+    }
+
+    private func notchHoverRect(on screen: NSScreen) -> NSRect {
+        if let leftArea = screen.auxiliaryTopLeftArea,
+           let rightArea = screen.auxiliaryTopRightArea {
+            let notchWidth = max(160, screen.frame.width - leftArea.width - rightArea.width)
+            let notchHeight = max(screen.safeAreaInsets.top, screen.frame.maxY - screen.visibleFrame.maxY)
+            let width = notchWidth + 40
+            let height = notchHeight + 8
+            return NSRect(
+                x: screen.frame.midX - width / 2,
+                y: screen.frame.maxY - height,
+                width: width,
+                height: height
+            )
+        }
+
+        let menubarHeight = max(24, screen.frame.maxY - screen.visibleFrame.maxY)
+        let width: CGFloat = 200
+        let height = menubarHeight + 38
+        return NSRect(
+            x: screen.frame.midX - width / 2,
+            y: screen.frame.maxY - height,
+            width: width,
+            height: height
+        )
+    }
+
+    private func expandedHoverRect(on screen: NSScreen) -> NSRect {
+        let preferred = surface.preferredSize
+        let size = CGSize(
+            width: min(preferred.width, screen.visibleFrame.width),
+            height: min(preferred.height, screen.visibleFrame.height)
+        )
+        let notchHeight = max(screen.safeAreaInsets.top, screen.frame.maxY - screen.visibleFrame.maxY)
+        let width = size.width + 48
+        let height = notchHeight + size.height + 44
+        return NSRect(
+            x: screen.frame.midX - width / 2,
+            y: screen.frame.maxY - height,
+            width: width,
+            height: height
+        )
+    }
+
+    private func handleMouseLocation(_ point: NSPoint) {
+        let screen = screen(containing: point) ?? targetScreen()
+
+        if mode == .hidden || mode == .compact || isPromptMode {
+            guard notchHoverRect(on: screen).contains(point) else {
+                expandTimer?.invalidate()
+                expandTimer = nil
                 return
             }
 
             collapseTimer?.invalidate()
+            collapseTimer = nil
+
+            guard expandTimer == nil else { return }
+            expandTimer = Timer(timeInterval: 0.20, repeats: false) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.expandTimer = nil
+                    guard self.mode == .hidden || self.mode == .compact || self.isPromptMode else { return }
+                    let current = NSEvent.mouseLocation
+                    let currentScreen = self.screen(containing: current) ?? self.targetScreen()
+                    guard self.notchHoverRect(on: currentScreen).contains(current) else { return }
+                    self.expand(surface: .today, activateKeyboard: false, pin: false)
+                }
+            }
+            RunLoop.main.add(expandTimer!, forMode: .common)
+            return
+        }
+
+        if mode == .expanded {
+            if expandedHoverRect(on: screen).contains(point) || notch.isHovering {
+                collapseTimer?.invalidate()
+                collapseTimer = nil
+                return
+            }
+
+            guard !isModalOpen, !isInputFocused, !pinnedByHotkey else { return }
+            guard collapseTimer == nil else { return }
             collapseTimer = Timer(timeInterval: 0.30, repeats: false) { [weak self] _ in
                 Task { @MainActor in
                     guard let self else { return }
                     self.collapseTimer = nil
-                    guard self.mode == .expanded,
-                          !self.isModalOpen,
-                          !self.isInputFocused,
-                          !self.pinnedByHotkey,
-                          !self.notch.isHovering else {
-                        return
-                    }
+                    guard self.mode == .expanded else { return }
+                    let current = NSEvent.mouseLocation
+                    let currentScreen = self.screen(containing: current) ?? self.targetScreen()
+                    guard !self.expandedHoverRect(on: currentScreen).contains(current) else { return }
+                    guard !self.isModalOpen, !self.isInputFocused, !self.pinnedByHotkey else { return }
                     self.collapse()
                 }
             }
             RunLoop.main.add(collapseTimer!, forMode: .common)
         }
+    }
+
+    private func handleHoverChange(_ hovering: Bool) {
+        _ = hovering
+        handleMouseLocation(NSEvent.mouseLocation)
     }
 
     // MARK: - Compact / hidden state
