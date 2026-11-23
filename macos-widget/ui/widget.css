@@ -615,7 +615,9 @@ button {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.72);
+  background: rgba(0, 0, 0, 0.56);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  backdrop-filter: blur(12px) saturate(140%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -627,9 +629,12 @@ button {
   width: min(460px, 100%);
   max-height: calc(100vh - 32px);
   overflow-y: auto;
-  background: var(--card-bg);
-  border: none;
-  border-radius: 12px;
+  background: rgba(28, 28, 30, 0.84);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 16px;
+  box-shadow: 0 20px 44px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.08);
   padding: 18px;
 }
 
@@ -669,17 +674,19 @@ button {
   width: 100%;
   padding: 8px 11px;
   border-radius: 12px;
-  border: none;
-  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.10);
   color: var(--text);
   font-size: 13px;
   outline: none;
+  color-scheme: dark;
 }
 
 .form-stack input:focus,
 .form-stack select:focus,
 .form-stack textarea:focus {
-  background: rgba(255, 255, 255, 0.13);
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(125, 211, 252, 0.55);
 }
 
 .form-row-2 {
