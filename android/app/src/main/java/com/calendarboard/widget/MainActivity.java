@@ -218,7 +218,7 @@ public final class MainActivity extends Activity {
             root.addView(buildDayAgenda(selectedDate, allItems));
         } else {
             // 7-Day Agenda View
-            root.addView(buildSevenDayList(byDate));
+            root.addView(buildSevenDayList(allItems));
         }
 
         // 5. Status Footer
@@ -739,7 +739,9 @@ public final class MainActivity extends Activity {
             card.addView(ch);
 
             for (JSONObject item : list) {
-                card.addView(buildItemRow(item, true));
+                View row = buildItemRow(item, true);
+                if (dayData.past && "课程".equals(category)) row.setAlpha(0.55f);
+                card.addView(row);
             }
             container.addView(card, clp);
         }
@@ -768,34 +770,45 @@ public final class MainActivity extends Activity {
             container.addView(emptyCard);
         }
 
+        if (dayData.past && dayData.archivedCount > 0) {
+            TextView archived = new TextView(this);
+            archived.setText("这一天有 " + dayData.archivedCount + " 条已归档 ›");
+            archived.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+            archived.setTypeface(Typeface.DEFAULT_BOLD);
+            archived.setTextColor(KnitTheme.INK_MUTED);
+            archived.setGravity(Gravity.CENTER);
+            archived.setPadding(0, dp(6), 0, dp(6));
+            container.addView(archived);
+        }
+
         return container;
     }
 
-    private View buildSevenDayList(Map<String, List<JSONObject>> byDate) {
+    private View buildSevenDayList(List<JSONObject> allItems) {
         LinearLayout container = new LinearLayout(this);
         container.setOrientation(LinearLayout.VERTICAL);
 
-        LocalDate today = LocalDate.now();
-        for (int offset = 0; offset < 7; offset++) {
-            LocalDate date = today.plusDays(offset);
-            String dateStr = date.toString();
+        boolean firstDay = true;
+        for (Items.WeekDay day : Items.weekAhead(allItems, LocalDate.now().toString())) {
+            LocalDate date = LocalDate.parse(day.iso);
 
             LinearLayout card = new LinearLayout(this);
             card.setOrientation(LinearLayout.VERTICAL);
             card.setPadding(dp(15), dp(13), dp(15), dp(13));
             card.setBackground(KnitTheme.knitCard(this, KnitTheme.SURFACE_OAT, KnitTheme.BORDER_LINEN, 22, true));
             LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            if (offset > 0) clp.topMargin = dp(10);
+            if (!firstDay) clp.topMargin = dp(10);
+            firstDay = false;
 
             LinearLayout header = new LinearLayout(this);
             header.setOrientation(LinearLayout.HORIZONTAL);
             header.setGravity(Gravity.CENTER_VERTICAL);
 
             TextView dTitle = new TextView(this);
-            dTitle.setText((offset == 0 ? "今天 · " : "") + CalendarUtils.shortDateHeading(date));
+            dTitle.setText(CalendarUtils.shortDateHeading(date));
             dTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14.5f);
             dTitle.setTypeface(Typeface.DEFAULT_BOLD);
-            dTitle.setTextColor(offset == 0 ? KnitTheme.YARN_TODO : KnitTheme.INK_PRIMARY);
+            dTitle.setTextColor(KnitTheme.INK_PRIMARY);
             header.addView(dTitle, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
             TextView quickBtn = new TextView(this);
@@ -812,15 +825,22 @@ public final class MainActivity extends Activity {
             header.addView(quickBtn, new LinearLayout.LayoutParams(dp(26), dp(26)));
             card.addView(header);
 
-            List<JSONObject> list = new ArrayList<>();
-            if (byDate.containsKey(dateStr)) {
-                for (JSONObject item : byDate.get(dateStr)) {
-                    if (!item.optBoolean("done")) list.add(item);
-                }
+            if (day.courseCount > 0) {
+                TextView courseSummary = new TextView(this);
+                courseSummary.setText(day.firstCourseStart != null
+                        ? (day.courseCount + " 节课 · 首节 " + Items.formatMinutes(day.firstCourseStart))
+                        : (day.courseCount + " 节课"));
+                courseSummary.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+                courseSummary.setTypeface(Typeface.DEFAULT_BOLD);
+                courseSummary.setTextColor(KnitTheme.YARN_COURSE);
+                courseSummary.setPadding(dp(10), dp(6), dp(10), dp(6));
+                courseSummary.setBackground(KnitTheme.roundedRect(this, KnitTheme.YARN_COURSE_BG, Color.TRANSPARENT, 0, 999));
+                LinearLayout.LayoutParams summaryLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                summaryLp.topMargin = dp(8);
+                card.addView(courseSummary, summaryLp);
             }
-            list.sort(Items.BY_TIME);
 
-            if (list.isEmpty()) {
+            if (day.courseCount == 0 && day.items.isEmpty()) {
                 TextView empty = new TextView(this);
                 empty.setText("暂无安排");
                 empty.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
@@ -828,7 +848,7 @@ public final class MainActivity extends Activity {
                 empty.setPadding(0, dp(7), 0, dp(2));
                 card.addView(empty);
             } else {
-                for (JSONObject item : list) {
+                for (JSONObject item : day.items) {
                     card.addView(buildItemRow(item, false));
                 }
             }

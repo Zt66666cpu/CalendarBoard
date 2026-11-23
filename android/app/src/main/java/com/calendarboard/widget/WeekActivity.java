@@ -19,7 +19,6 @@ import org.json.JSONObject;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 
 /** Warm knit 7-day agenda opened from the home screen widget. */
@@ -86,18 +85,26 @@ public final class WeekActivity extends Activity {
         boolean loggedIn = SessionStore.session(this) != null;
         JSONObject cache = SessionStore.cache(this);
         JSONArray allItems = loggedIn ? cache.optJSONArray("all_items") : null;
-        JSONArray weekRows = loggedIn ? cache.optJSONArray("week_schedules") : null;
+        List<JSONObject> itemList = new ArrayList<>();
+        if (allItems != null) {
+            for (int i = 0; i < allItems.length(); i++) {
+                JSONObject item = allItems.optJSONObject(i);
+                if (item != null) itemList.add(item);
+            }
+        }
+        List<Items.WeekDay> weekDays = Items.weekAhead(itemList, LocalDate.now().toString());
 
-        for (int offset = 1; offset <= 7; offset++) {
-            LocalDate date = LocalDate.now().plusDays(offset);
-            String dateStr = date.toString();
+        boolean firstDay = true;
+        for (Items.WeekDay day : weekDays) {
+            LocalDate date = LocalDate.parse(day.iso);
 
             LinearLayout dayCard = new LinearLayout(this);
             dayCard.setOrientation(LinearLayout.VERTICAL);
             dayCard.setPadding(dp(16), dp(14), dp(16), dp(14));
             dayCard.setBackground(KnitTheme.knitCard(this, KnitTheme.SURFACE_OAT, KnitTheme.BORDER_LINEN, 22, true));
             LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            if (offset > 1) cardLp.topMargin = dp(11);
+            if (!firstDay) cardLp.topMargin = dp(11);
+            firstDay = false;
 
             LinearLayout dayHeader = new LinearLayout(this);
             dayHeader.setOrientation(LinearLayout.HORIZONTAL);
@@ -122,23 +129,22 @@ public final class WeekActivity extends Activity {
             }
             dayCard.addView(dayHeader);
 
-            List<JSONObject> entries = new ArrayList<>();
-            if (allItems != null) {
-                for (int i = 0; i < allItems.length(); i++) {
-                    JSONObject item = allItems.optJSONObject(i);
-                    if (item == null) continue;
-                    if (dateStr.equals(item.optString("date")) && !item.optBoolean("done")) entries.add(item);
-                }
-            } else if (weekRows != null) {
-                for (int i = 0; i < weekRows.length(); i++) {
-                    JSONObject row = weekRows.optJSONObject(i);
-                    JSONObject item = row == null ? null : row.optJSONObject("payload");
-                    if (item != null && dateStr.equals(item.optString("date"))) entries.add(item);
-                }
+            if (day.courseCount > 0) {
+                TextView courseSummary = new TextView(this);
+                courseSummary.setText(day.firstCourseStart != null
+                        ? (day.courseCount + " 节课 · 首节 " + Items.formatMinutes(day.firstCourseStart))
+                        : (day.courseCount + " 节课"));
+                courseSummary.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+                courseSummary.setTypeface(Typeface.DEFAULT_BOLD);
+                courseSummary.setTextColor(KnitTheme.YARN_COURSE);
+                courseSummary.setPadding(dp(10), dp(6), dp(10), dp(6));
+                courseSummary.setBackground(KnitTheme.roundedRect(this, KnitTheme.YARN_COURSE_BG, Color.TRANSPARENT, 0, 999));
+                LinearLayout.LayoutParams summaryLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                summaryLp.topMargin = dp(8);
+                dayCard.addView(courseSummary, summaryLp);
             }
-            entries.sort(Comparator.comparing(e -> e.optString("time", "")));
 
-            if (entries.isEmpty()) {
+            if (day.courseCount == 0 && day.items.isEmpty()) {
                 TextView empty = new TextView(this);
                 empty.setText(loggedIn ? "暂无安排" : "请先登录并同步");
                 empty.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
@@ -146,7 +152,7 @@ public final class WeekActivity extends Activity {
                 empty.setPadding(0, dp(8), 0, dp(2));
                 dayCard.addView(empty);
             } else {
-                for (JSONObject item : entries) {
+                for (JSONObject item : day.items) {
                     dayCard.addView(buildItemRow(item));
                 }
             }

@@ -1,6 +1,7 @@
 package com.calendarboard.widget;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.DatePickerDialog;
 import android.app.TimePickerDialog;
 import android.graphics.Color;
@@ -223,26 +224,35 @@ public final class QuickAddActivity extends Activity {
                 status.setText("无法识别原事项，请先刷新。");
                 return;
             }
-            saveBtn.setEnabled(false);
-            deleteBtn.setEnabled(false);
-            status.setText("正在删除…");
-            new Thread(() -> {
-                try {
-                    CalendarApi.deleteItem(this, rowId);
-                    CalendarApi.syncToday(this);
-                    runOnUiThread(() -> {
-                        CalendarWidget.renderAll(this);
-                        setResult(RESULT_OK);
-                        finish();
-                    });
-                } catch (Exception error) {
-                    runOnUiThread(() -> {
-                        status.setText("删除失败：" + error.getMessage());
-                        saveBtn.setEnabled(true);
-                        deleteBtn.setEnabled(true);
-                    });
-                }
-            }).start();
+            String itemTitle = title.getText().toString().trim();
+            if (itemTitle.isEmpty() && target != null) itemTitle = target.optString("title", "事项");
+            final String dialogTitle = itemTitle;
+            new AlertDialog.Builder(this)
+                    .setTitle("删除「" + dialogTitle + "」？")
+                    .setPositiveButton("删除", (d, w) -> {
+                        saveBtn.setEnabled(false);
+                        deleteBtn.setEnabled(false);
+                        status.setText("正在删除…");
+                        new Thread(() -> {
+                            try {
+                                CalendarApi.deleteItem(this, rowId);
+                                CalendarApi.syncToday(this);
+                                runOnUiThread(() -> {
+                                    CalendarWidget.renderAll(this);
+                                    setResult(RESULT_OK);
+                                    finish();
+                                });
+                            } catch (Exception error) {
+                                runOnUiThread(() -> {
+                                    status.setText("删除失败：" + error.getMessage());
+                                    saveBtn.setEnabled(true);
+                                    deleteBtn.setEnabled(true);
+                                });
+                            }
+                        }).start();
+                    })
+                    .setNegativeButton("取消", null)
+                    .show();
         });
 
         saveBtn.setOnClickListener(v -> {

@@ -208,13 +208,11 @@ final class CalendarApi {
         JSONArray allItems = allItemsWithRowId == null
                 ? new JSONArray()
                 : new JSONArray(allItemsWithRowId.toString());
-        String weekEnd = LocalDate.parse(today).plusDays(7).toString();
 
         List<JSONObject> courses = new ArrayList<>();
         List<JSONObject> schedules = new ArrayList<>();
         List<JSONObject> todosToday = new ArrayList<>();
         List<JSONObject> todosPending = new ArrayList<>();
-        JSONArray weekSchedules = new JSONArray();
 
         for (int i = 0; i < allItems.length(); i++) {
             JSONObject item = allItems.optJSONObject(i);
@@ -230,13 +228,6 @@ final class CalendarApi {
             }
             if ("待办".equals(type) && Items.isPending(item, today)) {
                 todosPending.add(item);
-            }
-            if ("日程".equals(type)
-                    && date.compareTo(today) >= 0
-                    && date.compareTo(weekEnd) <= 0) {
-                weekSchedules.put(new JSONObject()
-                        .put("id", item.optString("_row_id", ""))
-                        .put("payload", item));
             }
         }
 
@@ -261,8 +252,7 @@ final class CalendarApi {
                 .put("todos_pending", toArray(todosPending))
                 .put("course", format("课程", courses, true))
                 .put("todo", format("待办", widgetTodos, false))
-                .put("schedule", format("日程", schedules, true))
-                .put("week_schedules", weekSchedules);
+                .put("schedule", format("日程", schedules, true));
     }
 
     private static JSONArray toArray(List<JSONObject> items) {
