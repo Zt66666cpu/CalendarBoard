@@ -104,7 +104,9 @@ final class CalendarApi {
         JSONObject body = new JSONObject().put("email", email).put("password", password);
         JSONObject response = request("/auth/v1/token?grant_type=password", "POST", body, null);
         saveTokens(context, response);
-        SessionStore.saveCache(context, new JSONObject());
+        JSONObject data = new JSONObject();
+        SessionStore.saveCache(context, data);
+        Repo.get().onCacheSaved(data);
     }
 
     private static void saveTokens(Context context, JSONObject response) throws Exception {
@@ -170,6 +172,7 @@ final class CalendarApi {
         JSONObject data = buildCache(allItems, meta, today, syncedAt, syncedAtMs);
         if (revision != SessionStore.revision()) throw new IllegalStateException("登录状态已改变。");
         SessionStore.saveCache(context, data);
+        Repo.get().onCacheSaved(data);
         return data;
     }
 
@@ -405,6 +408,7 @@ final class CalendarApi {
         String syncedAt = LocalTime.now().withSecond(0).withNano(0).toString();
         JSONObject data = buildCache(allItems, meta, today, syncedAt, System.currentTimeMillis());
         SessionStore.saveCache(context, data);
+        Repo.get().onCacheSaved(data);
     }
 
     static synchronized void deleteItem(Context context, String id) throws Exception {

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg_cream">#F6F1E7</color>
+    <color name="widget_bg_fill">#F4F6F1E7</color>
+    <color name="surface_oat">#FFFDF9</color>
+    <color name="surface_sand">#EFE8DA</color>
+    <color name="surface_sand_deep">#E6DCCB</color>
+    <color name="border_linen">#DFD5C3</color>
+    <color name="stitch_wool">#D5C9B4</color>
+    <color name="ink_primary">#3A312A</color>
+    <color name="ink_secondary">#7D7166</color>
+    <color name="ink_muted">#A79B8E</color>
+    <color name="accent_cocoa">#5C4D42</color>
+    <color name="accent_on_cocoa">#FFFDF9</color>
+    <color name="accent_cocoa_soft">#EAE1D3</color>
+    <color name="yarn_course">#6B8FA3</color>
+    <color name="yarn_course_bg">#EDF3F6</color>
+    <color name="yarn_todo">#C68B59</color>
+    <color name="yarn_todo_bg">#FAF1E7</color>
+    <color name="yarn_schedule">#B67B7E</color>
+    <color name="yarn_schedule_bg">#F7ECEC</color>
+    <color name="danger_clay">#B85D57</color>
+    <color name="danger_clay_bg">#F8E9E7</color>
+    <color name="danger_border">#E3C2BE</color>
+    <color name="transparent">#00000000</color>
+</resources>

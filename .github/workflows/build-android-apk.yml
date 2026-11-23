@@ -24,10 +24,10 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Android SDK Platform 35 & Build Tools
+      - name: Install Android SDK Platform 36 & Build Tools
         run: |
           yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
-          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"
 
       - name: Setup Gradle 8.13
         uses: gradle/actions/setup-gradle@v4

@@ -1,6 +1,7 @@
 package com.calendarboard.widget;
 
 import android.content.Context;
+import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.BitmapShader;
 import android.graphics.Canvas;
@@ -16,36 +17,81 @@ import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.util.TypedValue;
 
+import androidx.core.content.ContextCompat;
+
+import java.util.HashMap;
+import java.util.Map;
+
 final class KnitTheme {
-    // Warm Cream Knit Palette
-    static final int BG_CREAM = Color.parseColor("#F6F1E7");
-    static final int SURFACE_OAT = Color.parseColor("#FFFDF9");
-    static final int SURFACE_SAND = Color.parseColor("#EFE8DA");
-    static final int SURFACE_SAND_DEEP = Color.parseColor("#E6DCCB");
-    static final int BORDER_LINEN = Color.parseColor("#DFD5C3");
-    static final int STITCH_WOOL = Color.parseColor("#D5C9B4");
+    // Warm Cream Knit Palette. Values are refreshed from resources by load(Context).
+    static int BG_CREAM = 0xFFF6F1E7;
+    static int SURFACE_OAT = 0xFFFFFDF9;
+    static int SURFACE_SAND = 0xFFEFE8DA;
+    static int SURFACE_SAND_DEEP = 0xFFE6DCCB;
+    static int BORDER_LINEN = 0xFFDFD5C3;
+    static int STITCH_WOOL = 0xFFD5C9B4;
 
-    static final int INK_PRIMARY = Color.parseColor("#3A312A");
-    static final int INK_SECONDARY = Color.parseColor("#7D7166");
-    static final int INK_MUTED = Color.parseColor("#A79B8E");
+    static int INK_PRIMARY = 0xFF3A312A;
+    static int INK_SECONDARY = 0xFF7D7166;
+    static int INK_MUTED = 0xFFA79B8E;
 
-    static final int ACCENT_COCOA = Color.parseColor("#5C4D42");
-    static final int ACCENT_COCOA_SOFT = Color.parseColor("#EAE1D3");
+    static int ACCENT_COCOA = 0xFF5C4D42;
+    static int ACCENT_ON_COCOA = 0xFFFFFDF9;
+    static int ACCENT_COCOA_SOFT = 0xFFEAE1D3;
 
     // Morandi Yarn Category Colors
-    static final int YARN_COURSE = Color.parseColor("#6B8FA3");
-    static final int YARN_COURSE_BG = Color.parseColor("#EDF3F6");
+    static int YARN_COURSE = 0xFF6B8FA3;
+    static int YARN_COURSE_BG = 0xFFEDF3F6;
 
-    static final int YARN_TODO = Color.parseColor("#C68B59");
-    static final int YARN_TODO_BG = Color.parseColor("#FAF1E7");
+    static int YARN_TODO = 0xFFC68B59;
+    static int YARN_TODO_BG = 0xFFFAF1E7;
 
-    static final int YARN_SCHEDULE = Color.parseColor("#B67B7E");
-    static final int YARN_SCHEDULE_BG = Color.parseColor("#F7ECEC");
+    static int YARN_SCHEDULE = 0xFFB67B7E;
+    static int YARN_SCHEDULE_BG = 0xFFF7ECEC;
 
-    static final int DANGER_CLAY = Color.parseColor("#B85D57");
-    static final int DANGER_CLAY_BG = Color.parseColor("#F8E9E7");
+    static int DANGER_CLAY = 0xFFB85D57;
+    static int DANGER_CLAY_BG = 0xFFF8E9E7;
+    static int DANGER_BORDER = 0xFFE3C2BE;
+
+    private static final Map<String, BitmapShader> SHADER_CACHE = new HashMap<>();
 
     private KnitTheme() { }
+
+    /** Loads the active light or night palette from color resources. */
+    static void load(Context context) {
+        if (context == null) return;
+        BG_CREAM = ContextCompat.getColor(context, R.color.bg_cream);
+        SURFACE_OAT = ContextCompat.getColor(context, R.color.surface_oat);
+        SURFACE_SAND = ContextCompat.getColor(context, R.color.surface_sand);
+        SURFACE_SAND_DEEP = ContextCompat.getColor(context, R.color.surface_sand_deep);
+        BORDER_LINEN = ContextCompat.getColor(context, R.color.border_linen);
+        STITCH_WOOL = ContextCompat.getColor(context, R.color.stitch_wool);
+
+        INK_PRIMARY = ContextCompat.getColor(context, R.color.ink_primary);
+        INK_SECONDARY = ContextCompat.getColor(context, R.color.ink_secondary);
+        INK_MUTED = ContextCompat.getColor(context, R.color.ink_muted);
+
+        ACCENT_COCOA = ContextCompat.getColor(context, R.color.accent_cocoa);
+        ACCENT_ON_COCOA = ContextCompat.getColor(context, R.color.accent_on_cocoa);
+        ACCENT_COCOA_SOFT = ContextCompat.getColor(context, R.color.accent_cocoa_soft);
+
+        YARN_COURSE = ContextCompat.getColor(context, R.color.yarn_course);
+        YARN_COURSE_BG = ContextCompat.getColor(context, R.color.yarn_course_bg);
+        YARN_TODO = ContextCompat.getColor(context, R.color.yarn_todo);
+        YARN_TODO_BG = ContextCompat.getColor(context, R.color.yarn_todo_bg);
+        YARN_SCHEDULE = ContextCompat.getColor(context, R.color.yarn_schedule);
+        YARN_SCHEDULE_BG = ContextCompat.getColor(context, R.color.yarn_schedule_bg);
+
+        DANGER_CLAY = ContextCompat.getColor(context, R.color.danger_clay);
+        DANGER_CLAY_BG = ContextCompat.getColor(context, R.color.danger_clay_bg);
+        DANGER_BORDER = ContextCompat.getColor(context, R.color.danger_border);
+    }
+
+    static boolean isDark(Context context) {
+        if (context == null) return false;
+        int mode = context.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
+        return mode == Configuration.UI_MODE_NIGHT_YES;
+    }
 
     static int dp(Context context, float value) {
         return Math.round(TypedValue.applyDimension(
@@ -96,24 +142,24 @@ final class KnitTheme {
         return d;
     }
 
-    private static final class KnitPatternDrawable extends Drawable {
-        private final Paint bgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint shaderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private static BitmapShader shaderFor(Context context, boolean dark) {
+        String key = context.getResources().getDisplayMetrics().densityDpi + "_" + dark;
+        synchronized (SHADER_CACHE) {
+            BitmapShader cached = SHADER_CACHE.get(key);
+            if (cached != null) return cached;
 
-        KnitPatternDrawable(Context context) {
-            bgPaint.setColor(BG_CREAM);
             int size = Math.max(16, dp(context, 14));
             Bitmap tile = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
             Canvas c = new Canvas(tile);
 
-            // Subtle stockinette V-knit micro-pattern
+            // Subtle stockinette V-knit micro-pattern. Night mode dims the yarn strokes.
             Paint shadowYarn = new Paint(Paint.ANTI_ALIAS_FLAG);
-            shadowYarn.setColor(Color.argb(28, 155, 138, 114));
+            shadowYarn.setColor(Color.argb(dark ? 18 : 28, 155, 138, 114));
             shadowYarn.setStrokeWidth(Math.max(1f, dp(context, 0.9f)));
             shadowYarn.setStrokeCap(Paint.Cap.ROUND);
 
             Paint highlightYarn = new Paint(Paint.ANTI_ALIAS_FLAG);
-            highlightYarn.setColor(Color.argb(46, 255, 253, 249));
+            highlightYarn.setColor(Color.argb(dark ? 28 : 46, 255, 253, 249));
             highlightYarn.setStrokeWidth(Math.max(1f, dp(context, 0.8f)));
             highlightYarn.setStrokeCap(Paint.Cap.ROUND);
 
@@ -127,7 +173,19 @@ final class KnitTheme {
             c.drawLine(size - q * 0.6f, half + q * 0.7f, half + 1f, size - 1f, shadowYarn);
 
             BitmapShader shader = new BitmapShader(tile, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT);
-            shaderPaint.setShader(shader);
+            SHADER_CACHE.put(key, shader);
+            return shader;
+        }
+    }
+
+    private static final class KnitPatternDrawable extends Drawable {
+        private final Paint bgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint shaderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+        KnitPatternDrawable(Context context) {
+            load(context);
+            bgPaint.setColor(BG_CREAM);
+            shaderPaint.setShader(shaderFor(context, isDark(context)));
         }
 
         @Override public void draw(Canvas canvas) {

@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widgetRoot"
     android:layout_width="match_parent"
@@ -27,7 +28,7 @@
                 android:text="今天"
                 android:textSize="18sp"
                 android:textStyle="bold"
-                android:textColor="#3A312A" />
+                android:textColor="@color/ink_primary" />
 
             <TextView
                 android:id="@+id/weekBadge"
@@ -42,7 +43,7 @@
                 android:text=""
                 android:textSize="11sp"
                 android:textStyle="bold"
-                android:textColor="#6B5C50" />
+                android:textColor="@color/ink_secondary" />
         </LinearLayout>
 
         <TextView
@@ -55,7 +56,7 @@
             android:text="＋"
             android:textSize="18sp"
             android:textStyle="bold"
-            android:textColor="#5C4D42"
+            android:textColor="@color/accent_cocoa"
             android:contentDescription="添加事项" />
 
         <TextView
@@ -67,7 +68,7 @@
             android:text="↻"
             android:textSize="17sp"
             android:textStyle="bold"
-            android:textColor="#5C4D42"
+            android:textColor="@color/accent_cocoa"
             android:contentDescription="刷新" />
     </LinearLayout>
 
@@ -89,7 +90,7 @@
             android:text="●  课程"
             android:textSize="12sp"
             android:textStyle="bold"
-            android:textColor="#5E8296" />
+            android:textColor="@color/yarn_course" />
 
         <TextView
             android:id="@+id/course"
@@ -99,7 +100,7 @@
             android:lineSpacingExtra="3dp"
             android:text="正在同步"
             android:textSize="13sp"
-            android:textColor="#3A312A" />
+            android:textColor="@color/ink_primary" />
     </LinearLayout>
 
     <!-- Todo Card -->
@@ -121,7 +122,7 @@
             android:text="●  待办"
             android:textSize="12sp"
             android:textStyle="bold"
-            android:textColor="#B87E4D" />
+            android:textColor="@color/yarn_todo" />
 
         <TextView
             android:id="@+id/todo"
@@ -131,7 +132,7 @@
             android:lineSpacingExtra="3dp"
             android:text="正在同步"
             android:textSize="13sp"
-            android:textColor="#3A312A" />
+            android:textColor="@color/ink_primary" />
     </LinearLayout>
 
     <!-- Schedule Card -->
@@ -153,7 +154,7 @@
             android:text="●  今日日程"
             android:textSize="12sp"
             android:textStyle="bold"
-            android:textColor="#A76D71" />
+            android:textColor="@color/yarn_schedule" />
 
         <TextView
             android:id="@+id/schedule"
@@ -163,7 +164,7 @@
             android:lineSpacingExtra="3dp"
             android:text="正在同步"
             android:textSize="13sp"
-            android:textColor="#3A312A" />
+            android:textColor="@color/ink_primary" />
     </LinearLayout>
 
     <!-- 7-Day Agenda Pill -->
@@ -182,7 +183,7 @@
         android:text="明天起 7 天  ›"
         android:textSize="13sp"
         android:textStyle="bold"
-        android:textColor="#5C4D42" />
+        android:textColor="@color/accent_cocoa" />
 
     <!-- Sync Footer -->
     <TextView
@@ -195,5 +196,5 @@
         android:singleLine="true"
         android:text="点 ＋ 添加 · 点卡片打开完整日历"
         android:textSize="11sp"
-        android:textColor="#8E8175" />
+        android:textColor="@color/ink_muted" />
 </LinearLayout>
