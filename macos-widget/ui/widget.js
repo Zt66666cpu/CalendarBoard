@@ -94,6 +94,7 @@ const state = {
   archiveFocusIso: null,
   deleteConfirmArmed: false,
   deleteConfirmTimer: null,
+  detailDayIso: null,
 };
 
 let activeUndoStatusId = null;
@@ -794,6 +795,125 @@ function renderDayList() {
   }
 }
 
+function openDayDetailModal(iso) {
+  if (!iso) return;
+  state.detailDayIso = iso;
+  renderDayDetailModal();
+  $('dayDetailBackdrop').classList.remove('hidden');
+  postNative({ action: 'setModalOpen', open: true });
+}
+
+function closeDayDetailModal() {
+  const backdrop = $('dayDetailBackdrop');
+  if (backdrop) backdrop.classList.add('hidden');
+  state.detailDayIso = null;
+  const entryOpen = !$('entryBackdrop').classList.contains('hidden');
+  const settingsOpen = !$('settingsBackdrop').classList.contains('hidden');
+  if (!entryOpen && !settingsOpen) {
+    postNative({ action: 'setModalOpen', open: false });
+  }
+}
+
+function renderDayDetailModal() {
+  const iso = state.detailDayIso;
+  if (!iso) return;
+  const date = parseDate(iso);
+  if (Number.isNaN(date.getTime())) return;
+
+  const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+  const isToday = iso === state.todayIso;
+  $('dayDetailTitle').textContent =
+    `${date.getMonth() + 1}月${date.getDate()}日 · ${weekdays[date.getDay()]}${isToday ? '（今天）' : ''}`;
+
+  const subParts = [];
+  const weekLbl = academicWeekLabel(date);
+  if (weekLbl) subParts.push(`${state.meta?.termName || '2026秋'} ${weekLbl}`);
+  const lunar = getLunarInfo(date);
+  if (lunar.label) subParts.push(`农历 ${lunar.label}`);
+  $('dayDetailSub').textContent = subParts.join(' · ');
+
+  const dayData = CBCore.dayItems(state.items, iso, state.todayIso, state.recentDoneIds);
+  const todos = isToday ? [...dayData.todos, ...dayData.pending] : dayData.todos;
+  const body = $('dayDetailBody');
+  body.replaceChildren();
+
+  const addGroup = (label, key, items) => {
+    if (!items.length) return;
+    const group = document.createElement('section');
+    group.className = 'day-detail-group';
+    const title = document.createElement('div');
+    title.className = 'day-detail-group-title';
+    const dot = document.createElement('span');
+    dot.className = `cat-dot ${key}`;
+    const text = document.createElement('span');
+    text.textContent = label;
+    const count = document.createElement('span');
+    count.className = 'cat-count';
+    count.textContent = String(items.length);
+    title.append(dot, text, count);
+    const list = document.createElement('div');
+    list.className = 'cat-list';
+    group.append(title, list);
+    body.append(group);
+    return list;
+  };
+
+  const courseList = addGroup('课程', 'course', dayData.courses);
+  for (const item of dayData.courses) {
+    const card = document.createElement('div');
+    card.className = 'entry-card';
+    const metaParts = [item.time, itemPlace(item), item.teacher].filter(Boolean);
+    card.append(createEntryMain(item, metaParts.join(' · ')));
+    card.addEventListener('click', () => {
+      closeDayDetailModal();
+      openEntryModal(item);
+    });
+    courseList.append(card);
+  }
+
+  const todoList = addGroup('待办', 'todo', todos);
+  for (const item of todos) {
+    const done = CBCore.isDone(item);
+    const card = document.createElement('div');
+    card.className = `entry-card${done ? ' recent-done' : ''}`;
+    const metaParts = [];
+    if (item.date && item.date !== iso) metaParts.push(`原定 ${formatMonthDay(item.date)}`);
+    if (item.time) metaParts.push(item.time);
+    if (itemPlace(item)) metaParts.push(itemPlace(item));
+    card.append(createEntryMain(item, metaParts.join(' · ')));
+    const linkBtn = entryLinkButton(item);
+    if (linkBtn) card.append(linkBtn);
+    card.append(done
+      ? actionButton('撤销', () => undoCompleteTodo(item.id))
+      : actionButton('已完成', () => completeTodo(item)));
+    card.addEventListener('click', () => {
+      closeDayDetailModal();
+      openEntryModal(item);
+    });
+    todoList.append(card);
+  }
+
+  const scheduleList = addGroup('日程', 'schedule', dayData.schedules);
+  for (const item of dayData.schedules) {
+    const card = document.createElement('div');
+    card.className = 'entry-card';
+    const metaParts = [item.time, itemPlace(item)].filter(Boolean);
+    card.append(createEntryMain(item, metaParts.join(' · ')));
+    card.addEventListener('click', () => {
+      closeDayDetailModal();
+      openEntryModal(item);
+    });
+    scheduleList.append(card);
+  }
+
+  if (!dayData.courses.length && !todos.length && !dayData.schedules.length) {
+    const empty = document.createElement('div');
+    empty.className = 'empty-hint';
+    empty.textContent = '这一天没有安排';
+    body.append(empty);
+  }
+}
+
 function renderWeekView() {
   const container = $('weekView');
   container.replaceChildren();
@@ -807,8 +927,12 @@ function renderWeekView() {
 
     const head = document.createElement('div');
     head.className = 'week-day-head';
-    const headLabel = document.createElement('span');
+    const headLabel = document.createElement('button');
+    headLabel.type = 'button';
+    headLabel.className = 'week-day-head-btn';
     headLabel.textContent = `${d.getMonth() + 1}月${d.getDate()}日 · ${weekdays[d.getDay()]}`;
+    headLabel.title = '查看当天全部安排';
+    headLabel.addEventListener('click', () => openDayDetailModal(day.iso));
     head.append(headLabel);
     const addBtn = document.createElement('button');
     addBtn.type = 'button';
@@ -823,11 +947,18 @@ function renderWeekView() {
     block.append(head);
 
     if (day.courseCount > 0) {
-      const summary = document.createElement('div');
+      const summary = document.createElement('button');
+      summary.type = 'button';
       summary.className = 'course-summary-row';
-      summary.textContent = day.firstCourseStart !== null
+      const summaryMain = document.createElement('span');
+      summaryMain.textContent = day.firstCourseStart !== null
         ? `${day.courseCount} 节课 · 首节 ${CBCore.formatMinutes(day.firstCourseStart)}`
         : `${day.courseCount} 节课`;
+      const summaryHint = document.createElement('span');
+      summaryHint.className = 'course-summary-hint';
+      summaryHint.textContent = '详情 ›';
+      summary.append(summaryMain, summaryHint);
+      summary.addEventListener('click', () => openDayDetailModal(day.iso));
       block.append(summary);
     }
 
@@ -1249,6 +1380,9 @@ function renderAll() {
   renderCalendar();
   renderDayList();
   renderWeekView();
+  if (state.detailDayIso && !$('dayDetailBackdrop').classList.contains('hidden')) {
+    renderDayDetailModal();
+  }
   renderReviewBanner();
   renderReviewView();
   renderArchiveView();
@@ -1847,6 +1981,18 @@ $('archiveToggleBtn').addEventListener('click', () => {
 });
 
 $('closeSettingsModal').addEventListener('click', closeSettingsModal);
+$('closeDayDetailModal').addEventListener('click', closeDayDetailModal);
+$('dayDetailDoneBtn').addEventListener('click', closeDayDetailModal);
+$('dayDetailBackdrop').addEventListener('click', (e) => {
+  if (e.target === $('dayDetailBackdrop')) closeDayDetailModal();
+});
+$('dayDetailAddBtn').addEventListener('click', () => {
+  const iso = state.detailDayIso;
+  if (!iso) return;
+  state.selected = iso;
+  closeDayDetailModal();
+  openEntryModal(null, '日程');
+});
 $('cloudConfigForm').addEventListener('submit', handleCloudLogin);
 $('signupBtn').addEventListener('click', handleCloudSignup);
 $('useDemoBtn').addEventListener('click', switchToDemoMode);
@@ -1855,6 +2001,10 @@ $('saveTermBtn').addEventListener('click', saveTermSettings);
 
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
+  if (!$('dayDetailBackdrop').classList.contains('hidden')) {
+    closeDayDetailModal();
+    return;
+  }
   if (!$('entryBackdrop').classList.contains('hidden')) {
     closeEntryModal();
     return;

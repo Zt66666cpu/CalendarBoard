@@ -240,6 +240,25 @@
     </div>
   </div>
 
+  <!-- Day Detail Modal (future 7 days) -->
+  <div id="dayDetailBackdrop" class="modal-backdrop hidden">
+    <div class="modal-card day-detail-card" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <div>
+          <h3 id="dayDetailTitle">11月25日 · 周三</h3>
+          <div id="dayDetailSub" class="day-detail-sub"></div>
+        </div>
+        <button id="closeDayDetailModal" class="icon-btn" type="button">✕</button>
+      </div>
+      <div id="dayDetailBody" class="day-detail-body"></div>
+      <div class="modal-actions">
+        <button id="dayDetailAddBtn" class="ghost-btn" type="button">＋ 添加事项</button>
+        <div class="spacer"></div>
+        <button id="dayDetailDoneBtn" class="primary-btn" type="button">关闭</button>
+      </div>
+    </div>
+  </div>
+
   <script src="core.js"></script>
   <script src="vendor/chrono.min.js"></script>
   <script src="quickadd-parser.js"></script>
