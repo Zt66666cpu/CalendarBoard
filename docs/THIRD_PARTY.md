@@ -15,6 +15,26 @@
 | org.json:json | 20240303 | Public Domain | JVM 单元测试中的 org.json 实现 | P3 |
 | DynamicNotchKit | 1.1.0 | MIT | macOS 刘海 / 无刘海课程岛容器、展开收起与过渡动效；本地 Vendor 化并做 CLT 宏兼容 | P4 |
 | KeyboardShortcuts | 1.9.4 | MIT | 全局快捷键注册、快捷键录制窗口与本地化资源 | P4 |
+| chrono-node | 2.10.3 | MIT | 课程岛中文自然语言快速添加（日期/时间解析），esbuild 打包为浏览器 IIFE | P4-B |
+
+## P4-B chrono-node 2.10.3（中文自然语言解析）
+
+- **版本 / 许可证**：`chrono-node@2.10.3`，许可证 `MIT`（上游 `package.json` 声明 `"license": "MIT"`）。
+- **用途**：`macos-widget/ui/quickadd-parser.js` 调用 `chrono.zh.hans.parse(text, refDate, { forwardDate: true })`，为 macOS 课程岛提供中文自然语言快速添加。
+- **产物路径**：`macos-widget/ui/vendor/chrono.min.js`（IIFE，全局变量 `chrono`；由 esbuild 生成，禁止手改）。
+- **可复现生成命令**（在 `CalendarBoard/` 目录、已安装 `chrono-node@2.10.3` 与 `esbuild` 的环境中执行）：
+  ```bash
+  npx esbuild node_modules/chrono-node/dist/esm/index.js \
+    --bundle --minify --format=iife --global-name=chrono \
+    --outfile=macos-widget/ui/vendor/chrono.min.js
+  ```
+- **本次实际生成命令**（使用 scratch 中已安装的 esbuild 0.28.2）：
+  ```bash
+  "/Users/strongintheearth/.gemini/antigravity/brain/1ddb6f91-879b-4199-ab4f-a1558b8545e9/scratch/chrono-build/node_modules/.bin/esbuild" \
+    "/Users/strongintheearth/.gemini/antigravity/brain/1ddb6f91-879b-4199-ab4f-a1558b8545e9/scratch/chrono-build/node_modules/chrono-node/dist/esm/index.js" \
+    --bundle --minify --format=iife --global-name=chrono \
+    --outfile="macos-widget/ui/vendor/chrono.min.js"
+  ```
 
 ## P4.2 DynamicNotchKit 本地化（CLT 宏兼容）
 

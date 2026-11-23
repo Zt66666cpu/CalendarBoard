@@ -82,11 +82,9 @@ const state = {
   todayIso: localDate(new Date()),
   sidebarTab: 'day',
   editing: null,
-  panelState: 'sidebar', // 'peek' | 'sidebar' | 'expanded'
-  pinned: false,
-  hoverExpand: true,
-  dockMode: 'autoHide', // 'autoHide' | 'desktop' | 'normal' | 'floating'
-  glassStyle: 'regular', // 'regular' | 'clear'
+  surface: 'today', // 'today' | 'month' | 'quickAdd' | 'review'
+  surfaceStyle: 'notch', // 'notch' | 'floating'
+  quickAddTypeOverride: null, // null | '日程' | '待办'
   recentDoneIds: new Set(),
   undoTimers: new Map(),
   subview: null, // null | 'review' | 'archive'
@@ -300,8 +298,8 @@ async function syncItems() {
     } else {
       const courseCount = state.items.filter((it) => it.type === '课程').length;
       setStatus(state.mode === 'local'
-        ? `已同步本地课表（${courseCount} 节）· 移开鼠标自动收缩`
-        : '演示模式 · 移开鼠标自动收缩到右边缘');
+        ? `已同步本地课表（${courseCount} 节）`
+        : '演示模式');
     }
     return;
   }
@@ -336,9 +334,8 @@ async function syncItems() {
 function itemPlace(item) { return item.place || item.room || ''; }
 function typeKey(type) { return { 课程: 'course', 待办: 'todo', 日程: 'schedule' }[type] || 'schedule'; }
 
-function updateClock() {
+function checkDateRollover() {
   const now = new Date();
-  $('clockTime').textContent = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
   const currentIso = localDate(now);
   if (currentIso !== state.todayIso) {
     const wasToday = state.selected === state.todayIso;
@@ -347,10 +344,80 @@ function updateClock() {
       state.selected = currentIso;
       state.view = new Date(now.getFullYear(), now.getMonth(), 1);
     }
-    syncItems();
   }
-  if (checkReviewPrompt()) renderAll();
 }
+
+function applySurfaceStyle(style) {
+  state.surfaceStyle = style === 'floating' ? 'floating' : 'notch';
+  document.body.classList.toggle('floating', state.surfaceStyle === 'floating');
+}
+
+function parseQuickAddInput() {
+  const input = $('quickAddInput');
+  const raw = input ? input.value : '';
+  if (!globalThis.CBQuickAdd) return null;
+  return globalThis.CBQuickAdd.parse(raw, new Date(), globalThis.chrono, state.quickAddTypeOverride);
+}
+
+function renderQuickAdd() {
+  const parsed = parseQuickAddInput();
+  const badge = $('quickAddTypeBadge');
+  const preview = $('quickAddPreview');
+  if (badge) {
+    const type = parsed ? parsed.type : (state.quickAddTypeOverride || '日程');
+    badge.textContent = type;
+    badge.classList.toggle('todo', type === '待办');
+    badge.classList.toggle('schedule', type !== '待办');
+  }
+  if (preview) {
+    preview.textContent = parsed && globalThis.CBQuickAdd
+      ? globalThis.CBQuickAdd.formatPreview(parsed, state.todayIso)
+      : '';
+  }
+  return parsed;
+}
+
+function setSurface(name, notifyNative = true) {
+  const valid = ['today', 'month', 'quickAdd', 'review'];
+  if (!valid.includes(name)) return;
+  state.surface = name;
+  if (name === 'review') state.subview = 'review';
+  if (name === 'today' && state.subview === 'review') state.subview = null;
+
+  for (const surfaceName of valid) {
+    document.body.classList.toggle(`surface-${surfaceName}`, surfaceName === name);
+  }
+  const quickAddView = $('quickAddView');
+  const shell = $('shell');
+  if (quickAddView) quickAddView.classList.toggle('hidden', name !== 'quickAdd');
+  if (shell) shell.classList.toggle('hidden', name === 'quickAdd');
+
+  const expandLabel = $('expandLabel');
+  if (expandLabel) expandLabel.textContent = name === 'month' ? '今日' : '月历';
+
+  if (notifyNative) postNative({ action: 'setSurface', surface: name });
+
+  if (name === 'quickAdd') {
+    state.quickAddTypeOverride = null;
+    renderQuickAdd();
+    setTimeout(() => $('quickAddInput')?.focus(), 30);
+  }
+}
+
+window.__showSurface = function (name, arg) {
+  setSurface(name || 'today', false);
+  renderAll();
+};
+window.__setSurfaceStyle = function (style) {
+  applySurfaceStyle(style === 'floating' ? 'floating' : 'notch');
+};
+window.__nativeNotice = function (msg) {
+  setStatus(String(msg || ''), true);
+};
+window.__triggerSync = function () {
+  checkDateRollover();
+  syncItems();
+};
 
 function renderModeBadge() {
   const badge = $('modeBadge');
@@ -745,7 +812,7 @@ function checkReviewPrompt() {
   if (!list.length) return false;
   if (nowMinutes() < CBCore.reviewTriggerMinutes(state.items, state.todayIso)) return false;
   if (storeGet('lastReviewPromptDate') === state.todayIso) return false;
-  state.subview = 'review';
+  setSurface('review');
   storeSet('lastReviewPromptDate', state.todayIso);
   return true;
 }
@@ -769,7 +836,7 @@ function closeReviewView() {
     clearTimeout(reviewAutoCloseTimer);
     reviewAutoCloseTimer = null;
   }
-  state.subview = null;
+  setSurface('today');
   renderAll();
 }
 
@@ -791,7 +858,7 @@ function renderReviewView() {
       reviewAutoCloseTimer = setTimeout(() => {
         reviewAutoCloseTimer = null;
         if (state.subview === 'review') {
-          state.subview = null;
+          setSurface('today');
           renderAll();
         }
       }, 700);
@@ -1092,38 +1159,32 @@ function renderTabs() {
   $('archiveView').classList.toggle('hidden', state.subview !== 'archive');
 }
 
-function renderNativeControls() {
-  const isPeeking = state.panelState === 'peek';
-  const isExpanded = state.panelState === 'expanded';
-
-  $('peekStrip').classList.toggle('hidden', !isPeeking);
-  $('shell').classList.toggle('hidden', isPeeking);
-  $('shell').classList.toggle('collapsed', !isExpanded);
-
-  $('expandIcon').textContent = isExpanded ? '›' : '‹';
-  $('expandLabel').textContent = isExpanded ? '收起' : '月历';
-
-  const modeLabels = {
-    autoHide: '自动隐藏',
-    desktop: '贴近桌面',
-    normal: '普通窗口',
-    floating: '置顶悬浮',
-  };
-  $('modeQuickToggle').textContent = modeLabels[state.dockMode] || '自动隐藏';
-  $('pinBtn').classList.toggle('active', state.pinned);
-  $('hoverExpandToggle').checked = state.hoverExpand;
-
-  for (const btn of $('dockModeSegmented').querySelectorAll('button')) {
-    btn.classList.toggle('active', btn.dataset.mode === state.dockMode);
-  }
-  for (const btn of $('glassStyleSegmented').querySelectorAll('button')) {
-    btn.classList.toggle('active', btn.dataset.glass === state.glassStyle);
-  }
+function pushTimeline() {
+  const today = state.todayIso;
+  const dayData = CBCore.dayItems(state.items, today, today, state.recentDoneIds);
+  const classes = dayData.courses
+    .map((c) => ({
+      title: c.title || '',
+      start: CBCore.itemStart(c),
+      end: CBCore.itemEnd(c),
+      place: itemPlace(c),
+    }))
+    .filter((c) => c.start !== null);
+  const openTodos = dayData.todos.filter((it) => !CBCore.isDone(it)).length;
+  const pending = dayData.pending.filter((it) => !CBCore.isDone(it)).length;
+  const reviewAt = CBCore.reviewTriggerMinutes(state.items, today);
+  postNative({
+    action: 'islandTimeline',
+    date: today,
+    classes,
+    openTodos,
+    pending,
+    reviewAt,
+  });
 }
 
 function renderAll() {
   checkReviewPrompt();
-  renderNativeControls();
   renderModeBadge();
   renderSidebarHeader();
   renderTabs();
@@ -1133,6 +1194,7 @@ function renderAll() {
   renderReviewBanner();
   renderReviewView();
   renderArchiveView();
+  pushTimeline();
 }
 
 // Entry CRUD
@@ -1502,7 +1564,7 @@ function switchToDemoMode() {
   storeSet('demoItems', state.items);
   closeSettingsModal();
   renderAll();
-  setStatus('演示模式 · 移开鼠标自动收缩到右边缘');
+  setStatus('演示模式');
 }
 
 function handleLogout() {
@@ -1516,29 +1578,19 @@ function handleLogout() {
 }
 
 // Native Callbacks
-window.__onNativeState = function (s) {
-  if (!s) return;
-  state.panelState = s.panelState || (s.peeking ? 'peek' : s.expanded ? 'expanded' : 'sidebar');
-  state.pinned = Boolean(s.pinned);
-  state.hoverExpand = Boolean(s.hoverExpand);
-  state.dockMode = s.dockMode || 'autoHide';
-  state.glassStyle = s.glassStyle || 'regular';
-  renderNativeControls();
-};
-
-window.__triggerSync = function () { syncItems(); };
 window.__openSettings = function () { openSettingsModal(); };
 
 function hydrateAndStart(initPayload) {
   if (initPayload && initPayload.store) state.nativeStore = initPayload.store;
+  let initialSurface = state.surface;
+  let initialStyle = state.surfaceStyle;
   if (initPayload && initPayload.state) {
     const s = initPayload.state;
-    state.panelState = s.panelState || 'sidebar';
-    state.pinned = Boolean(s.pinned);
-    state.hoverExpand = Boolean(s.hoverExpand);
-    state.dockMode = s.dockMode || 'autoHide';
-    state.glassStyle = s.glassStyle || 'regular';
+    initialSurface = s.surface || state.surface;
+    initialStyle = s.surfaceStyle || state.surfaceStyle;
   }
+  setSurface(initialSurface, false);
+  applySurfaceStyle(initialStyle);
 
   const savedConfig = parseJsonSafe(storeGet('config'), null);
   state.config = savedConfig || { ...DEFAULT_CONFIG };
@@ -1563,48 +1615,99 @@ function hydrateAndStart(initPayload) {
     state.items = Array.isArray(savedDemo) && savedDemo.length ? savedDemo : buildInitialDemoItems();
     storeSet('demoItems', state.items);
     renderAll();
-    setStatus('演示模式 · 移开鼠标自动收缩到右边缘');
+    setStatus('演示模式');
   }
 }
 
 window.__initNative = function (payload) { hydrateAndStart(payload); };
 
+function toggleQuickAddType() {
+  const parsed = parseQuickAddInput();
+  const current = state.quickAddTypeOverride || (parsed ? parsed.type : '日程');
+  state.quickAddTypeOverride = current === '日程' ? '待办' : '日程';
+  renderQuickAdd();
+}
+
+async function saveQuickAdd() {
+  const parsed = parseQuickAddInput();
+  if (!parsed || !parsed.title) return;
+  if (!canMutate()) return;
+  const payload = {
+    date: parsed.date,
+    type: parsed.type,
+    title: parsed.title,
+    startTime: parsed.startTime,
+    endTime: parsed.endTime,
+    time: CBCore.buildTime(parsed.startTime, parsed.endTime),
+    place: '',
+    done: false,
+  };
+  if (isLocalMode()) {
+    state.items.push({ ...payload, id: makeUuid32() });
+    storeSet('demoItems', state.items);
+    renderAll();
+  } else {
+    try {
+      await apiClient.create(makeUuid32(), payload);
+      await syncItems();
+    } catch (err) {
+      setStatus(err.message, true);
+      return;
+    }
+  }
+  const input = $('quickAddInput');
+  if (input) input.value = '';
+  state.quickAddTypeOverride = null;
+  setSurface('today');
+  renderAll();
+  postNative({ action: 'collapse' });
+}
+
+function cancelQuickAdd() {
+  const input = $('quickAddInput');
+  if (input) input.value = '';
+  state.quickAddTypeOverride = null;
+  setSurface('today');
+  renderAll();
+  postNative({ action: 'collapse' });
+}
+
 // Wire up UI events
-$('peekStrip').addEventListener('click', () => {
-  postNative({ action: 'setPanelState', state: state.hoverExpand ? 'expanded' : 'sidebar' });
-});
-
 $('expandToggle').addEventListener('click', () => {
-  const next = state.panelState === 'expanded' ? 'sidebar' : 'expanded';
-  state.panelState = next;
-  renderNativeControls();
-  postNative({ action: 'setPanelState', state: next });
+  setSurface(state.surface === 'month' ? 'today' : 'month');
+  renderAll();
 });
 
-$('modeQuickToggle').addEventListener('click', () => {
-  const next = state.dockMode === 'autoHide' ? 'desktop' : 'autoHide';
-  state.dockMode = next;
-  renderNativeControls();
-  postNative({ action: 'setDockMode', mode: next });
-});
-
-$('pinBtn').addEventListener('click', () => {
-  state.pinned = !state.pinned;
-  renderNativeControls();
-  postNative({ action: 'setPinned', pinned: state.pinned });
-});
-
-$('peekNowBtn').addEventListener('click', () => {
-  state.pinned = false;
-  state.panelState = 'peek';
-  renderNativeControls();
-  postNative({ action: 'setPinned', pinned: false });
-  postNative({ action: 'setPanelState', state: 'peek' });
+$('quickAddBtn').addEventListener('click', () => {
+  setSurface('quickAdd');
+  renderAll();
 });
 
 $('syncBtn').addEventListener('click', () => syncItems());
 $('settingsBtn').addEventListener('click', () => openSettingsModal());
 $('connectBannerBtn').addEventListener('click', () => openSettingsModal());
+
+$('quickAddInput').addEventListener('input', () => renderQuickAdd());
+$('quickAddInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    toggleQuickAddType();
+    return;
+  }
+  if (e.key === 'Enter' && !e.isComposing) {
+    e.preventDefault();
+    saveQuickAdd();
+    return;
+  }
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    e.stopPropagation();
+    cancelQuickAdd();
+  }
+});
+$('quickAddTypeBadge').addEventListener('click', toggleQuickAddType);
+$('quickAddSave').addEventListener('click', saveQuickAdd);
+$('quickAddCancel').addEventListener('click', cancelQuickAdd);
 
 $('prevMonth').addEventListener('click', () => {
   state.view = new Date(state.view.getFullYear(), state.view.getMonth() - 1, 1);
@@ -1656,12 +1759,12 @@ $('deleteEntryBtn').addEventListener('click', () => {
 });
 
 $('openReviewBtn').addEventListener('click', () => {
-  state.subview = 'review';
+  setSurface('review');
   renderAll();
 });
 
 $('reviewBanner').addEventListener('click', () => {
-  state.subview = 'review';
+  setSurface('review');
   renderAll();
 });
 
@@ -1678,40 +1781,26 @@ $('useDemoBtn').addEventListener('click', switchToDemoMode);
 $('logoutBtn').addEventListener('click', handleLogout);
 $('saveTermBtn').addEventListener('click', saveTermSettings);
 
-$('hoverExpandToggle').addEventListener('change', (e) => {
-  state.hoverExpand = e.target.checked;
-  postNative({ action: 'setHoverExpand', enabled: state.hoverExpand });
-});
-
-for (const btn of $('dockModeSegmented').querySelectorAll('button')) {
-  btn.addEventListener('click', () => {
-    state.dockMode = btn.dataset.mode;
-    renderNativeControls();
-    postNative({ action: 'setDockMode', mode: state.dockMode });
-  });
-}
-
-for (const btn of $('glassStyleSegmented').querySelectorAll('button')) {
-  btn.addEventListener('click', () => {
-    state.glassStyle = btn.dataset.glass;
-    renderNativeControls();
-    postNative({ action: 'setGlassStyle', style: state.glassStyle });
-  });
-}
-
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') {
-    if (!$('entryBackdrop').classList.contains('hidden')) closeEntryModal();
-    if (!$('settingsBackdrop').classList.contains('hidden')) closeSettingsModal();
+  if (e.key !== 'Escape') return;
+  if (!$('entryBackdrop').classList.contains('hidden')) {
+    closeEntryModal();
+    return;
+  }
+  if (!$('settingsBackdrop').classList.contains('hidden')) {
+    closeSettingsModal();
+    return;
+  }
+  if (state.surface === 'month') {
+    setSurface('today');
+    renderAll();
+    return;
+  }
+  if (state.surface === 'quickAdd' || state.surface === 'review' || state.surface === 'today') {
+    postNative({ action: 'collapse' });
   }
 });
 
-updateClock();
-setInterval(updateClock, 15 * 1000);
-setInterval(() => {
-  if (state.mode === 'cloud' && state.session) syncItems();
-}, 5 * 60 * 1000);
-
 if (!isNative) {
-  hydrateAndStart({ state: { panelState: 'expanded', hoverExpand: false, dockMode: 'floating', glassStyle: 'regular' } });
+  hydrateAndStart({ state: { surface: 'today', surfaceStyle: 'notch' } });
 }
