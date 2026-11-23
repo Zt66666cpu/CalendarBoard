@@ -1,26 +1,39 @@
-课表日历源码分享包（2026-11-20）
+课表日历源码分享包
 
 先看这里
 本包是供室友独立搭建、学习和修改的源码，不是双击就能安装的程序。
-安卓源码对应 v1.6：今天的课程/待办/日程完整文字展示，底部可打开未来七天日程。
-桌面小组件空间由手机桌面决定，内容较多需要拉高组件。
+当前源码包含四端：Android 原生应用与桌面小组件、网页日历、macOS 原生桌面组件，以及 Windows 雨滴参考实现。
+桌面小组件空间由手机桌面决定，内容较多时需要拉高组件。
 
 目录
 android：原生安卓应用与桌面小组件源码。
-web：网页日历，可在 Mac、Windows 和安卓浏览器中使用。
+web：网页日历，可在 Mac、Windows 和 Android 浏览器中使用。
+macos-widget：macOS 原生桌面组件（菜单栏控制、无边框玻璃卡片），源码与构建脚本。
 backend/schema.sql：Supabase 数据表和每个用户仅能读写本人数据的规则。
 windows-rainmeter：Windows 雨滴日历源码参考，附空白数据，不适用于 macOS。
+data：示例课表数据（CSV / JSON / ICS）。
+scripts：课表导入、备份导出与上传辅助脚本。
+shared：跨端规则测试用例与 JavaScript 测试。
 
 Mac 与安卓怎么用
-1. Mac 上可以直接用浏览器打开部署后的 web 日历。
-2. 安卓桌面小组件由 android 源码编译安装。
-3. 目前没有原生 macOS 桌面组件。要得到类似 Windows 桌面侧栏，需要另做 Mac 版本。
+1. Mac 上可以直接用浏览器打开部署后的 web 日历，也可以编译运行 macos-widget 原生桌面组件。
+2. 安卓桌面小组件和完整月历由 android 源码编译安装。
+3. macOS 桌面组件以菜单栏图标控制，支持贴桌面、悬浮、玻璃材质的侧栏卡片等显示方式。
+4. 四端共用同一个 Supabase 项目与同一个日历账号。
 
-独立搭建步骤
+当前默认连接配置
+android/.../CalendarApi.java 的 BASE、KEY，web/app.js 的 defaultConfig，
+以及 macos-widget 中使用的默认配置，当前都指向同一个 Supabase 项目：
+- URL：https://samnpjgnvtearyeejjtg.supabase.co
+- publishable key：sb_publishable_x061oGvVUpjXv0PG1J-Kag_Voayt0Ux
+publishable key 可以放在客户端；不要把自己的 secret/service_role key 填进任何客户端。
+若要换成自己的项目，请同时修改上述位置，保证四端连接的是同一个项目。
+
+独立搭建步骤（使用自己的 Supabase 项目）
 1. 自己创建 Supabase 项目，保存数据库密码。
 2. 在项目的 SQL Editor 执行 backend/schema.sql。保持行级安全（RLS）开启。
 3. 从项目 API Keys 获取 publishable key；不要将 secret/service_role key 填入客户端。
-4. 修改 web/app.js 顶部 defaultConfig：填自己的项目 URL 和 publishable key。
+4. 修改 web/app.js 顶部的 defaultConfig，填自己的项目 URL 和 publishable key。
 5. 将 web 目录里的三个文件部署到自己的静态网站（例如 GitHub Pages）。
 6. 在 Supabase Authentication 的 URL Configuration 中，把 Site URL 和允许的回跳地址设为自己的网页完整地址（包括仓库路径）。保留邮箱验证，并通过邮件确认注册。
 7. 修改 android/app/src/main/java/com/calendarboard/widget/CalendarApi.java 的 BASE、KEY，填同一个项目的 URL 和 publishable key。
@@ -34,13 +47,23 @@ Mac 与安卓怎么用
 测试包使用室友本机的签名，不能直接覆盖原作者签名的 APK。若提示签名冲突，可先导出/确认云端数据，再卸载原应用；或者修改 applicationId 后作为另一个应用安装。
 发布长期自用版本时请自己生成并妥善保存签名密钥。
 
+在 Mac 上编译 macOS 桌面组件
+要求 macOS 13 或以上，并安装 Xcode Command Line Tools（提供 swiftc）。
+在终端执行：
+  cd macos-widget
+  ./build.sh
+脚本会用 swiftc 编译 Sources/main.swift，复制 web/core.js 和 ui 资源，生成 macos-widget/CalendarBoard.app，并做本机临时签名。
+首次打开如被系统拦截，可在“系统设置 → 隐私与安全性”中允许打开。组件不显示 Dock 图标，通过菜单栏图标操作；显示模式、玻璃材质、自动隐藏和同步都可以在菜单中调整。
+修改 web/core.js 后重新执行 build.sh，才会把最新规则同步进 macOS 应用包。
+
 Windows 雨滴（仅作参考）
 将 windows-rainmeter 文件夹放到 Rainmeter 的 Skins 目录，重命名为 CalendarBoard。
 数据已清空。先加载 Calendar.ini 查看空日历，再在 @Resources 中运行 SetupSync.ps1 配置自己的 Supabase URL、publishable key 和账号。
 PowerShell 与 Rainmeter 的路径和环境按本机调整。这部分未经 macOS 适配。
 
 隐私与限制
-已去除原作者的日程、课程数据、账号、会话、同步状态、原项目 URL/API key、个人网站地址和签名密钥。
+源码不包含原作者的日程、课程数据、账号、会话、同步状态和签名密钥。
+如果继续使用当前默认连接配置，请不要往该 Supabase 项目中写入敏感信息；正式自用建议换成自己创建的 Supabase 项目。
 不包含 node_modules、Android SDK、JDK、编译产物或历史备份。
 源码中的 YOUR_PROJECT、YOUR_USERNAME、YOUR_REPOSITORY、REPLACE_WITH_YOUR_KEY 都必须替换。
-本包包含现有实现及说明，尚未在室友的 Mac/安卓设备上验证。
+本包包含现有实现及说明，尚未在室友的 Mac/安卓设备上逐项验证。

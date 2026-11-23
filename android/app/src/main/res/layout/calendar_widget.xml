@@ -39,7 +39,7 @@
                 android:paddingTop="2dp"
                 android:paddingBottom="2dp"
                 android:background="@drawable/widget_pill_bg"
-                android:text="2026秋"
+                android:text=""
                 android:textSize="11sp"
                 android:textStyle="bold"
                 android:textColor="#6B5C50" />

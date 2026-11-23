@@ -15,7 +15,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.ArrayList;
-import java.util.Comparator;
+import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 
@@ -27,16 +27,22 @@ final class CalendarApi {
     private CalendarApi() { }
 
     private static JSONObject request(String path, String method, JSONObject body, String token) throws Exception {
-        HttpURLConnection connection = (HttpURLConnection) new URL(BASE + path).openConnection();
-        connection.setRequestMethod(method);
-        connection.setConnectTimeout(7000);
-        connection.setReadTimeout(7000);
-        connection.setRequestProperty("apikey", KEY);
-        connection.setRequestProperty("Accept", "application/json");
-        if ("POST".equals(method) && path.startsWith("/rest/v1/calendar_items"))
-            connection.setRequestProperty("Prefer", "resolution=merge-duplicates");
-        if (token != null) connection.setRequestProperty("Authorization", "Bearer " + token);
+        return request(path, method, body, token, null);
+    }
+
+    private static JSONObject request(String path, String method, JSONObject body, String token,
+                                      String preferHeader) throws Exception {
+        HttpURLConnection connection = null;
         try {
+            connection = (HttpURLConnection) new URL(BASE + path).openConnection();
+            connection.setRequestMethod(method);
+            connection.setConnectTimeout(7000);
+            connection.setReadTimeout(7000);
+            connection.setRequestProperty("apikey", KEY);
+            connection.setRequestProperty("Accept", "application/json");
+            if (preferHeader != null && !preferHeader.isEmpty())
+                connection.setRequestProperty("Prefer", preferHeader);
+            if (token != null) connection.setRequestProperty("Authorization", "Bearer " + token);
             if (body != null) {
                 connection.setDoOutput(true);
                 connection.setRequestProperty("Content-Type", "application/json");
@@ -61,11 +67,37 @@ final class CalendarApi {
                     JSONObject error = new JSONObject(text);
                     message = error.optString("msg", error.optString("message", error.optString("error_description", message)));
                 } catch (Exception ignored) { }
-                throw new ApiException(status, message);
+                throw new ApiException(status, codeForStatus(status), message);
             }
             if (text.startsWith("[")) return new JSONObject().put("rows", new JSONArray(text));
             return text.isEmpty() ? new JSONObject() : new JSONObject(text);
-        } finally { connection.disconnect(); }
+        } catch (ApiException error) {
+            throw error;
+        } catch (java.io.IOException error) {
+            String message = error.getMessage();
+            throw new ApiException(0, "network", message == null || message.isEmpty() ? "网络连接失败" : message);
+        } catch (org.json.JSONException error) {
+            throw new ApiException(0, "http", "云端返回了无法解析的数据");
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
+    }
+
+    private static String codeForStatus(int status) {
+        if (status == 401) return "auth";
+        if (status == 409) return "conflict";
+        return "http";
+    }
+
+    private static JSONObject requestWithRefresh(Context context, String path, String method,
+                                                 JSONObject body, String token,
+                                                 String preferHeader) throws Exception {
+        try {
+            return request(path, method, body, token, preferHeader);
+        } catch (ApiException error) {
+            if (error.status != 401) throw error;
+            return request(path, method, body, accessToken(context, true), preferHeader);
+        }
     }
 
     static synchronized void login(Context context, String email, String password) throws Exception {
@@ -101,92 +133,288 @@ final class CalendarApi {
         long revision = SessionStore.revision();
         if (SessionStore.session(context) == null) throw new IllegalStateException("请先登录。");
         String token = accessToken(context, false);
-        JSONArray all = new JSONArray();
+        JSONArray rows = new JSONArray();
         for (int offset = 0; ; offset += 1000) {
             String path = "/rest/v1/calendar_items?select=id,payload&order=id.asc&limit=1000&offset=" + offset;
             JSONObject response;
-            try { response = request(path, "GET", null, token); }
-            catch (ApiException error) {
+            try {
+                response = request(path, "GET", null, token);
+            } catch (ApiException error) {
                 if (error.status != 401) throw error;
                 token = accessToken(context, true);
                 response = request(path, "GET", null, token);
             }
-            JSONArray rows = response.getJSONArray("rows");
-            for (int i = 0; i < rows.length(); i++) all.put(rows.getJSONObject(i));
-            if (rows.length() < 1000) break;
+            JSONArray page = response.getJSONArray("rows");
+            for (int i = 0; i < page.length(); i++) rows.put(page.getJSONObject(i));
+            if (page.length() < 1000) break;
         }
-        String today = LocalDate.now().toString();
-        JSONArray weekSchedules = new JSONArray();
+
+        JSONObject meta = null;
         JSONArray allItems = new JSONArray();
-        List<JSONObject> courses = new ArrayList<>(), todos = new ArrayList<>(), schedules = new ArrayList<>();
-        for (int i = 0; i < all.length(); i++) {
-            JSONObject row = all.getJSONObject(i);
-            JSONObject item = row.optJSONObject("payload");
-            if (item == null) continue;
-            item.put("_row_id", row.optString("id"));
-            allItems.put(item);
-            String date = item.optString("date");
-            String type = item.optString("type");
-            if ("课程".equals(type) && today.equals(date)) courses.add(item);
-            if ("待办".equals(type) && !item.optBoolean("done") && !date.isEmpty() && date.compareTo(today) <= 0) todos.add(item);
-            if ("日程".equals(type) && today.equals(date)) schedules.add(item);
-            if ("日程".equals(type) && date.compareTo(today) >= 0
-                    && date.compareTo(LocalDate.parse(today).plusDays(7).toString()) <= 0) weekSchedules.put(row);
+        for (int i = 0; i < rows.length(); i++) {
+            JSONObject row = rows.getJSONObject(i);
+            JSONObject payload = row.optJSONObject("payload");
+            if (payload == null) continue;
+            if (Items.isMeta(payload)) {
+                if (meta == null) meta = payload;
+                continue;
+            }
+            payload.put("_row_id", row.optString("id"));
+            allItems.put(payload);
         }
-        Comparator<JSONObject> byTime = Comparator.comparing(item -> item.optString("time", ""));
-        courses.sort(byTime); todos.sort(byTime); schedules.sort(byTime);
-        JSONObject data = new JSONObject()
-                .put("date", today)
-                .put("course", format("课程", courses, true))
-                .put("todo", format("待办", todos, false))
-                .put("schedule", format("日程", schedules, true))
-                .put("week_schedules", weekSchedules)
-                .put("all_items", allItems)
-                .put("editable_items", editable(courses, todos, schedules))
-                .put("synced_at", LocalTime.now().withSecond(0).withNano(0).toString());
+        meta = ensureMeta(context, meta, token);
+
+        String today = LocalDate.now().toString();
+        long syncedAtMs = System.currentTimeMillis();
+        String syncedAt = LocalTime.now().withSecond(0).withNano(0).toString();
+        JSONObject data = buildCache(allItems, meta, today, syncedAt, syncedAtMs);
         if (revision != SessionStore.revision()) throw new IllegalStateException("登录状态已改变。");
         SessionStore.saveCache(context, data);
         return data;
     }
 
-    private static JSONArray editable(List<JSONObject> courses, List<JSONObject> todos, List<JSONObject> schedules) {
+    private static JSONObject ensureMeta(Context context, JSONObject meta, String token) throws Exception {
+        if (meta != null) return meta;
+        String userId = tokenUserId(token);
+        if (userId.isEmpty()) throw new ApiException(401, "auth", "无法识别当前账号，请重新登录。");
+        String metaId = Items.metaId(userId);
+        JSONObject defaultMeta = Items.defaultMeta();
+        try {
+            requestWithRefresh(context, "/rest/v1/calendar_items", "POST",
+                    new JSONObject().put("id", metaId).put("payload", defaultMeta), token, null);
+            return defaultMeta;
+        } catch (ApiException error) {
+            if (error.status != 409) throw error;
+            String path = "/rest/v1/calendar_items?select=id,payload&id=eq."
+                    + URLEncoder.encode(metaId, "UTF-8");
+            JSONObject response = requestWithRefresh(context, path, "GET", null, token, null);
+            JSONArray rows = response.optJSONArray("rows");
+            if (rows != null) {
+                for (int i = 0; i < rows.length(); i++) {
+                    JSONObject row = rows.optJSONObject(i);
+                    JSONObject payload = row == null ? null : row.optJSONObject("payload");
+                    if (Items.isMeta(payload)) return payload;
+                }
+            }
+            throw new ApiException(200, "gone", "设置行不存在");
+        }
+    }
+
+    static JSONObject buildCache(JSONArray allItemsWithRowId, JSONObject meta, String today,
+                                 String syncedAt, long syncedAtMs) throws Exception {
+        JSONObject effectiveMeta = meta == null
+                ? Items.defaultMeta()
+                : new JSONObject(meta.toString());
+        JSONArray allItems = allItemsWithRowId == null
+                ? new JSONArray()
+                : new JSONArray(allItemsWithRowId.toString());
+        String weekEnd = LocalDate.parse(today).plusDays(7).toString();
+
+        List<JSONObject> courses = new ArrayList<>();
+        List<JSONObject> schedules = new ArrayList<>();
+        List<JSONObject> todosToday = new ArrayList<>();
+        List<JSONObject> todosPending = new ArrayList<>();
+        JSONArray weekSchedules = new JSONArray();
+
+        for (int i = 0; i < allItems.length(); i++) {
+            JSONObject item = allItems.optJSONObject(i);
+            if (item == null || Items.isMeta(item)) continue;
+            String date = item.optString("date");
+            String type = item.optString("type");
+            if ("课程".equals(type) && today.equals(date)) courses.add(item);
+            if ("日程".equals(type) && today.equals(date) && !Items.isArchived(item, today)) {
+                schedules.add(item);
+            }
+            if ("待办".equals(type) && today.equals(date) && !Items.isArchived(item, today)) {
+                todosToday.add(item);
+            }
+            if ("待办".equals(type) && Items.isPending(item, today)) {
+                todosPending.add(item);
+            }
+            if ("日程".equals(type)
+                    && date.compareTo(today) >= 0
+                    && date.compareTo(weekEnd) <= 0) {
+                weekSchedules.put(new JSONObject()
+                        .put("id", item.optString("_row_id", ""))
+                        .put("payload", item));
+            }
+        }
+
+        courses.sort(Items.BY_TIME);
+        schedules.sort(Items.BY_TIME);
+        todosToday.sort(Items.BY_TIME);
+        todosPending.sort((a, b) -> {
+            int dateOrder = a.optString("date").compareTo(b.optString("date"));
+            return dateOrder != 0 ? dateOrder : Items.BY_TIME.compare(a, b);
+        });
+        List<JSONObject> widgetTodos = new ArrayList<>();
+        widgetTodos.addAll(todosPending);
+        widgetTodos.addAll(todosToday);
+
+        return new JSONObject()
+                .put("date", today)
+                .put("synced_at", syncedAt)
+                .put("synced_at_ms", syncedAtMs)
+                .put("meta", effectiveMeta)
+                .put("all_items", allItems)
+                .put("todos_today", toArray(todosToday))
+                .put("todos_pending", toArray(todosPending))
+                .put("course", format("课程", courses, true))
+                .put("todo", format("待办", widgetTodos, false))
+                .put("schedule", format("日程", schedules, true))
+                .put("week_schedules", weekSchedules);
+    }
+
+    private static JSONArray toArray(List<JSONObject> items) {
         JSONArray result = new JSONArray();
-        for (JSONObject item : courses) result.put(item);
-        for (JSONObject item : todos) result.put(item);
-        for (JSONObject item : schedules) result.put(item);
+        for (JSONObject item : items) result.put(item);
         return result;
     }
 
     static synchronized void saveItem(Context context, String id, JSONObject original,
-                                      String date, String type, String title, String time, String place) throws Exception {
+                                      String date, String type, String title,
+                                      String startTime, String endTime, String place) throws Exception {
         if (SessionStore.session(context) == null) throw new IllegalStateException("请先登录。");
         JSONObject item = original == null ? new JSONObject() : new JSONObject(original.toString());
         item.remove("_row_id");
-        item.put("type", type).put("title", title).put("date", date).put("time", time).put("place", place);
+        item.remove("id");
+        item.put("type", type)
+                .put("title", title)
+                .put("date", date)
+                .put("startTime", startTime)
+                .put("endTime", endTime)
+                .put("time", Items.buildTime(startTime, endTime))
+                .put("place", place);
+        if (item.has("room")) item.put("room", place);
+        if (item.has("display")) item.put("display", title);
         if ("待办".equals(type) && original == null) item.put("done", false);
-        JSONObject row = new JSONObject().put("id", id == null ? UUID.randomUUID().toString().replace("-", "") : id)
-                .put("payload", item);
+
+        if (id == null || id.isEmpty()) {
+            String token = accessToken(context, false);
+            String newId = newRowId();
+            try {
+                requestWithRefresh(context, "/rest/v1/calendar_items", "POST",
+                        new JSONObject().put("id", newId).put("payload", item), token, null);
+            } catch (ApiException error) {
+                if (error.status != 409) throw error;
+                newId = newRowId();
+                requestWithRefresh(context, "/rest/v1/calendar_items", "POST",
+                        new JSONObject().put("id", newId).put("payload", item), token, null);
+            }
+            updateLocalItem(context, newId, item);
+            return;
+        }
+        patchPayload(context, id, item);
+    }
+
+    static synchronized void patchPayload(Context context, String id, JSONObject payload) throws Exception {
+        if (SessionStore.session(context) == null) throw new IllegalStateException("请先登录。");
+        if (id == null || id.isEmpty()) throw new IllegalArgumentException("无法识别事项。");
+        JSONObject item = new JSONObject(payload.toString());
+        item.remove("_row_id");
+        item.remove("id");
+        String path = "/rest/v1/calendar_items?id=eq." + URLEncoder.encode(id, "UTF-8");
         String token = accessToken(context, false);
-        try { request("/rest/v1/calendar_items", "POST", row, token); }
-        catch (ApiException error) {
-            if (error.status != 401) throw error;
-            request("/rest/v1/calendar_items", "POST", row, accessToken(context, true));
+        JSONObject response = requestWithRefresh(context, path, "PATCH",
+                new JSONObject().put("payload", item), token, "return=representation");
+        JSONArray rows = response.optJSONArray("rows");
+        if (rows != null && rows.length() == 0) {
+            removeLocalItem(context, id);
+            throw new ApiException(200, "gone", "该事项已在其他设备删除");
+        }
+
+        JSONObject saved = null;
+        if (rows != null) {
+            JSONObject first = rows.optJSONObject(0);
+            if (first != null) saved = first.optJSONObject("payload");
+        }
+        JSONObject effective = saved == null ? item : new JSONObject(saved.toString());
+        if (Items.isMeta(effective)) {
+            updateLocalMeta(context, effective);
+        } else {
+            updateLocalItem(context, id, effective);
         }
     }
 
-    static synchronized void setTodoDone(Context context, String id, JSONObject original, boolean done) throws Exception {
-        if (SessionStore.session(context) == null) throw new IllegalStateException("请先登录。");
+    static synchronized void setTodoDone(Context context, String id, JSONObject original,
+                                         boolean done) throws Exception {
         if (id == null || id.isEmpty() || original == null) throw new IllegalArgumentException("无法识别事项。");
-        JSONObject item = new JSONObject(original.toString());
-        item.remove("_row_id");
-        item.put("done", done);
-        JSONObject row = new JSONObject().put("id", id).put("payload", item);
+        patchPayload(context, id, Items.applyDone(original, done));
+    }
+
+    static synchronized void postpone(Context context, String id, JSONObject original,
+                                      String targetIso) throws Exception {
+        if (id == null || id.isEmpty() || original == null) throw new IllegalArgumentException("无法识别事项。");
+        patchPayload(context, id, Items.applyPostpone(original, targetIso));
+    }
+
+    static synchronized void drop(Context context, String id, JSONObject original) throws Exception {
+        if (id == null || id.isEmpty() || original == null) throw new IllegalArgumentException("无法识别事项。");
+        patchPayload(context, id, Items.applyDrop(original));
+    }
+
+    static synchronized void restore(Context context, String id, JSONObject original) throws Exception {
+        if (id == null || id.isEmpty() || original == null) throw new IllegalArgumentException("无法识别事项。");
+        patchPayload(context, id, Items.applyRestore(original));
+    }
+
+    static synchronized void saveMeta(Context context, JSONObject updatedMeta) throws Exception {
+        if (SessionStore.session(context) == null) throw new IllegalStateException("请先登录。");
         String token = accessToken(context, false);
-        try { request("/rest/v1/calendar_items", "POST", row, token); }
-        catch (ApiException error) {
-            if (error.status != 401) throw error;
-            request("/rest/v1/calendar_items", "POST", row, accessToken(context, true));
+        String userId = tokenUserId(token);
+        if (userId.isEmpty()) throw new ApiException(401, "auth", "无法识别当前账号，请重新登录。");
+        JSONObject meta = new JSONObject(updatedMeta.toString());
+        meta.put("type", "meta");
+        patchPayload(context, Items.metaId(userId), meta);
+    }
+
+    private static void updateLocalItem(Context context, String id, JSONObject payload) throws Exception {
+        JSONObject cache = SessionStore.cache(context);
+        JSONArray current = cache.optJSONArray("all_items");
+        JSONArray next = new JSONArray();
+        if (current != null) {
+            for (int i = 0; i < current.length(); i++) {
+                JSONObject item = current.optJSONObject(i);
+                if (item == null) continue;
+                String rowId = item.optString("_row_id", item.optString("id", ""));
+                if (!id.equals(rowId)) next.put(item);
+            }
         }
+        JSONObject stored = new JSONObject(payload.toString());
+        stored.remove("id");
+        stored.put("_row_id", id);
+        next.put(stored);
+        rebuildAndSave(context, next, cache.optJSONObject("meta"));
+    }
+
+    private static void removeLocalItem(Context context, String id) throws Exception {
+        JSONObject cache = SessionStore.cache(context);
+        JSONArray current = cache.optJSONArray("all_items");
+        JSONArray next = new JSONArray();
+        if (current != null) {
+            for (int i = 0; i < current.length(); i++) {
+                JSONObject item = current.optJSONObject(i);
+                if (item == null) continue;
+                String rowId = item.optString("_row_id", item.optString("id", ""));
+                if (!id.equals(rowId)) next.put(item);
+            }
+        }
+        rebuildAndSave(context, next, cache.optJSONObject("meta"));
+    }
+
+    private static void updateLocalMeta(Context context, JSONObject meta) throws Exception {
+        JSONObject cache = SessionStore.cache(context);
+        JSONObject nextMeta = new JSONObject(meta.toString());
+        nextMeta.remove("_row_id");
+        nextMeta.remove("id");
+        rebuildAndSave(context, cache.optJSONArray("all_items"), nextMeta);
+    }
+
+    private static void rebuildAndSave(Context context, JSONArray allItems, JSONObject meta) throws Exception {
+        String today = LocalDate.now().toString();
+        String syncedAt = LocalTime.now().withSecond(0).withNano(0).toString();
+        JSONObject data = buildCache(allItems, meta, today, syncedAt, System.currentTimeMillis());
+        SessionStore.saveCache(context, data);
     }
 
     static synchronized void deleteItem(Context context, String id) throws Exception {
@@ -194,10 +422,27 @@ final class CalendarApi {
         if (id == null || id.isEmpty()) throw new IllegalArgumentException("无法识别事项。");
         String path = "/rest/v1/calendar_items?id=eq." + URLEncoder.encode(id, "UTF-8");
         String token = accessToken(context, false);
-        try { request(path, "DELETE", null, token); }
-        catch (ApiException error) {
+        try {
+            request(path, "DELETE", null, token);
+        } catch (ApiException error) {
             if (error.status != 401) throw error;
             request(path, "DELETE", null, accessToken(context, true));
+        }
+    }
+
+    private static String newRowId() {
+        return UUID.randomUUID().toString().replace("-", "");
+    }
+
+    private static String tokenUserId(String token) {
+        try {
+            String[] parts = token.split("\\.");
+            if (parts.length < 2) return "";
+            byte[] decoded = Base64.getUrlDecoder().decode(parts[1]);
+            JSONObject claims = new JSONObject(new String(decoded, StandardCharsets.UTF_8));
+            return claims.optString("sub", "");
+        } catch (Exception error) {
+            return "";
         }
     }
 
@@ -217,10 +462,14 @@ final class CalendarApi {
         return result.toString();
     }
 
-    private static final class ApiException extends Exception {
+    static final class ApiException extends Exception {
         final int status;
-        ApiException(int status, String message) { super(message); this.status = status; }
+        final String code;
+
+        ApiException(int status, String code, String message) {
+            super(message);
+            this.status = status;
+            this.code = code;
+        }
     }
 }
-
-

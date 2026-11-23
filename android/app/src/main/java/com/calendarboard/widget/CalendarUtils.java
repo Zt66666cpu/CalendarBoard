@@ -1,10 +1,12 @@
 package com.calendarboard.widget;
 
+import android.content.Context;
+
+import org.json.JSONObject;
+
 import java.time.LocalDate;
-import java.time.temporal.ChronoUnit;
 
 final class CalendarUtils {
-    private static final LocalDate TERM_START = LocalDate.of(2026, 8, 31); // 2026秋 第1周 周一
     private static final String[] WEEKDAYS = {"周一", "周二", "周三", "周四", "周五", "周六", "周日"};
 
     private CalendarUtils() { }
@@ -17,19 +19,44 @@ final class CalendarUtils {
         return date.getMonthValue() + "月" + date.getDayOfMonth() + "日 · " + weekdayLabel(date);
     }
 
-    /** Returns e.g. "第12周" or "" if outside the 20-week semester. */
-    static String semesterWeekShort(LocalDate date) {
-        long days = ChronoUnit.DAYS.between(TERM_START, date);
-        if (days < 0) return "";
-        long week = days / 7 + 1;
-        if (week >= 1 && week <= 20) return "第" + week + "周";
-        return "";
+    private static JSONObject meta(Context context) {
+        if (context != null) {
+            JSONObject cached = SessionStore.cache(context).optJSONObject("meta");
+            if (cached != null) return cached;
+        }
+        return Items.defaultMeta();
     }
 
-    /** Returns e.g. "2026秋 第12周" or "" if outside semester. */
+    static String semesterWeekShort(Context context, LocalDate date) {
+        return semesterWeekShort(meta(context), date);
+    }
+
+    static String semesterWeekShort(JSONObject meta, LocalDate date) {
+        return Items.termWeekLabel(meta == null ? Items.defaultMeta() : meta, date);
+    }
+
+    /** Fallback for callers without a context; uses the built-in default semester. */
+    static String semesterWeekShort(LocalDate date) {
+        return semesterWeekShort(Items.defaultMeta(), date);
+    }
+
+    static String semesterWeekFull(Context context, LocalDate date) {
+        JSONObject settings = meta(context);
+        String week = Items.termWeekLabel(settings, date);
+        if (week.isEmpty()) return "";
+        String name = settings.optString("termName", "2026秋").trim();
+        if (name.isEmpty()) name = "2026秋";
+        return name + " " + week;
+    }
+
+    /** Fallback for callers without a context; uses the built-in default semester. */
     static String semesterWeekFull(LocalDate date) {
-        String s = semesterWeekShort(date);
-        return s.isEmpty() ? "" : "2026秋 " + s;
+        JSONObject settings = Items.defaultMeta();
+        String week = Items.termWeekLabel(settings, date);
+        if (week.isEmpty()) return "";
+        String name = settings.optString("termName", "2026秋").trim();
+        if (name.isEmpty()) name = "2026秋";
+        return name + " " + week;
     }
 
     /** Concise solar holiday label for calendar cells. */

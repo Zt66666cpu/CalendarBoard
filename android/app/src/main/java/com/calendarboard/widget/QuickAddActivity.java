@@ -2,6 +2,7 @@ package com.calendarboard.widget;
 
 import android.app.Activity;
 import android.app.DatePickerDialog;
+import android.app.TimePickerDialog;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
@@ -11,28 +12,32 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
-import android.widget.AdapterView;
-import android.widget.ArrayAdapter;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
-import android.widget.Spinner;
 import android.widget.TextView;
 
-import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.time.LocalDate;
+import java.time.LocalTime;
 
 public final class QuickAddActivity extends Activity {
     static final String EXTRA_DATE = "extra_date";
     static final String EXTRA_ITEM_JSON = "extra_item_json";
+    static final String EXTRA_TYPE = "extra_type";
 
-    private static final String[] TYPES = {"待办", "日程", "课程"};
-    private String selectedType = "待办";
+    private static final String[] TYPES = {"日程", "待办", "课程"};
+    private String selectedType = "日程";
     private LocalDate selectedDate = LocalDate.now();
     private JSONObject directEditingItem = null;
     private TextView[] typeChips;
+    private String startTimeStr = "";
+    private String endTimeStr = "";
+    private TextView startPill;
+    private TextView endPill;
+    private TextView startClear;
+    private TextView endClear;
 
     private int dp(float n) { return KnitTheme.dp(this, n); }
 
@@ -47,14 +52,19 @@ public final class QuickAddActivity extends Activity {
         if (dateExtra != null && !dateExtra.isEmpty()) {
             try { selectedDate = LocalDate.parse(dateExtra); } catch (Exception ignored) { }
         }
+        String typeExtra = getIntent().getStringExtra(EXTRA_TYPE);
+        if (typeExtra != null) {
+            for (String type : TYPES) {
+                if (type.equals(typeExtra)) {
+                    selectedType = type;
+                    break;
+                }
+            }
+        }
         String itemExtra = getIntent().getStringExtra(EXTRA_ITEM_JSON);
         if (itemExtra != null && !itemExtra.isEmpty()) {
             try { directEditingItem = new JSONObject(itemExtra); } catch (Exception ignored) { }
         }
-
-        JSONArray items = SessionStore.cache(this).optJSONArray("editable_items");
-        if (items == null) items = new JSONArray();
-        final JSONArray editable = items;
 
         ScrollView scroll = new ScrollView(this);
         scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
@@ -70,7 +80,9 @@ public final class QuickAddActivity extends Activity {
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
         TextView heading = new TextView(this);
-        heading.setText(directEditingItem != null ? "编辑事项" : "快速记录");
+        heading.setText(directEditingItem != null
+                ? "编辑事项"
+                : "添加到 " + CalendarUtils.shortDateHeading(selectedDate));
         heading.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
         heading.setTypeface(Typeface.DEFAULT_BOLD);
         heading.setTextColor(KnitTheme.INK_PRIMARY);
@@ -85,26 +97,6 @@ public final class QuickAddActivity extends Activity {
         closeBtn.setOnClickListener(v -> finish());
         header.addView(closeBtn, new LinearLayout.LayoutParams(dp(32), dp(32)));
         card.addView(header);
-
-        // Optional existing item switcher when opened from widget
-        final Spinner existingSpinner;
-        if (directEditingItem == null && editable.length() > 0) {
-            existingSpinner = new Spinner(this);
-            String[] names = new String[editable.length() + 1];
-            names[0] = "＋ 新建事项";
-            for (int i = 0; i < editable.length(); i++) {
-                JSONObject item = editable.optJSONObject(i);
-                names[i + 1] = item == null ? "事项" : "编辑 · " + item.optString("type") + " · " + item.optString("title");
-            }
-            existingSpinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, names));
-            existingSpinner.setBackground(KnitTheme.roundedRect(this, KnitTheme.SURFACE_SAND, KnitTheme.BORDER_LINEN, 1, 16));
-            existingSpinner.setPadding(dp(12), dp(4), dp(12), dp(4));
-            LinearLayout.LayoutParams spLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44));
-            spLp.topMargin = dp(14);
-            card.addView(existingSpinner, spLp);
-        } else {
-            existingSpinner = null;
-        }
 
         // Category Pill Selector
         LinearLayout typeRow = new LinearLayout(this);
@@ -142,19 +134,34 @@ public final class QuickAddActivity extends Activity {
         dateLp.topMargin = dp(12);
         card.addView(dateBtn, dateLp);
 
-        Runnable refreshDateLabel = () -> dateBtn.setText("日期  ·  " + selectedDate + "  " + CalendarUtils.weekdayLabel(selectedDate));
+        Runnable refreshDateLabel = () -> {
+            dateBtn.setText("日期  ·  " + selectedDate + "  " + CalendarUtils.weekdayLabel(selectedDate));
+            if (directEditingItem == null) {
+                heading.setText("添加到 " + CalendarUtils.shortDateHeading(selectedDate));
+            }
+        };
         refreshDateLabel.run();
         dateBtn.setOnClickListener(v -> new DatePickerDialog(this, (picker, year, month, day) -> {
             selectedDate = LocalDate.of(year, month + 1, day);
             refreshDateLabel.run();
         }, selectedDate.getYear(), selectedDate.getMonthValue() - 1, selectedDate.getDayOfMonth()).show());
 
+        // Time picker pills
+        LinearLayout timeRow = new LinearLayout(this);
+        timeRow.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout startBox = buildTimeControl("开始时间", true);
+        LinearLayout endBox = buildTimeControl("结束时间", false);
+        LinearLayout.LayoutParams startLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        LinearLayout.LayoutParams endLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        endLp.leftMargin = dp(10);
+        timeRow.addView(startBox, startLp);
+        timeRow.addView(endBox, endLp);
+        card.addView(timeRow, inputLp());
+
         // Inputs
         EditText title = buildInput("事项名称");
-        EditText time = buildInput("时间，如 14:30-16:00（选填）");
         EditText place = buildInput("场地 / 教室（选填）");
         card.addView(title, inputLp());
-        card.addView(time, inputLp());
         card.addView(place, inputLp());
 
         // Populate if editing directly
@@ -162,13 +169,15 @@ public final class QuickAddActivity extends Activity {
             String d = directEditingItem.optString("date", selectedDate.toString());
             try { selectedDate = LocalDate.parse(d); } catch (Exception ignored) { }
             refreshDateLabel.run();
-            String kind = directEditingItem.optString("type", "待办");
-            selectedType = ("日程".equals(kind) || "课程".equals(kind)) ? kind : "待办";
+            String kind = directEditingItem.optString("type", "日程");
+            selectedType = ("日程".equals(kind) || "课程".equals(kind) || "待办".equals(kind)) ? kind : "日程";
             title.setText(directEditingItem.optString("title"));
-            time.setText(directEditingItem.optString("time"));
             place.setText(directEditingItem.optString("place", directEditingItem.optString("room")));
+            startTimeStr = Items.formatMinutes(Items.itemStart(directEditingItem));
+            endTimeStr = Items.formatMinutes(Items.itemEnd(directEditingItem));
         }
         updateTypeChips();
+        refreshTimePills();
 
         // Status text
         TextView status = new TextView(this);
@@ -207,40 +216,8 @@ public final class QuickAddActivity extends Activity {
         actions.addView(saveBtn, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         card.addView(actions, actLp);
 
-        if (existingSpinner != null) {
-            existingSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-                @Override public void onNothingSelected(AdapterView<?> parent) { }
-                @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                    if (position == 0) {
-                        selectedDate = LocalDate.now();
-                        refreshDateLabel.run();
-                        selectedType = "待办";
-                        updateTypeChips();
-                        title.setText(""); time.setText(""); place.setText("");
-                        deleteBtn.setVisibility(View.GONE);
-                        return;
-                    }
-                    JSONObject item = editable.optJSONObject(position - 1);
-                    if (item == null) return;
-                    try { selectedDate = LocalDate.parse(item.optString("date", LocalDate.now().toString())); }
-                    catch (Exception ignored) { selectedDate = LocalDate.now(); }
-                    refreshDateLabel.run();
-                    String kind = item.optString("type", "待办");
-                    selectedType = ("日程".equals(kind) || "课程".equals(kind)) ? kind : "待办";
-                    updateTypeChips();
-                    title.setText(item.optString("title"));
-                    time.setText(item.optString("time"));
-                    place.setText(item.optString("place", item.optString("room")));
-                    deleteBtn.setVisibility(View.VISIBLE);
-                }
-            });
-        }
-
         deleteBtn.setOnClickListener(v -> {
             JSONObject target = directEditingItem;
-            if (target == null && existingSpinner != null && existingSpinner.getSelectedItemPosition() > 0) {
-                target = editable.optJSONObject(existingSpinner.getSelectedItemPosition() - 1);
-            }
             String rowId = target == null ? null : target.optString("_row_id", null);
             if (rowId == null || rowId.isEmpty()) {
                 status.setText("无法识别原事项，请先刷新。");
@@ -274,10 +251,16 @@ public final class QuickAddActivity extends Activity {
                 title.setError("请填写事项名称");
                 return;
             }
-            JSONObject original = directEditingItem;
-            if (original == null && existingSpinner != null && existingSpinner.getSelectedItemPosition() > 0) {
-                original = editable.optJSONObject(existingSpinner.getSelectedItemPosition() - 1);
+            if (!endTimeStr.isEmpty()) {
+                Integer startMinutes = Items.parseMinutes(startTimeStr);
+                Integer endMinutes = Items.parseMinutes(endTimeStr);
+                if (startTimeStr.isEmpty() || startMinutes == null || endMinutes == null
+                        || endMinutes <= startMinutes) {
+                    status.setText("结束时间需要晚于开始时间。");
+                    return;
+                }
             }
+            JSONObject original = directEditingItem;
             String id = original == null ? null : original.optString("_row_id", null);
             if (original != null && (id == null || id.isEmpty())) {
                 status.setText("无法识别原事项，请刷新后重试。");
@@ -286,14 +269,15 @@ public final class QuickAddActivity extends Activity {
             final JSONObject origFinal = original;
             final String day = selectedDate.toString();
             final String kind = selectedType;
-            final String hour = time.getText().toString().trim();
+            final String start = startTimeStr;
+            final String end = endTimeStr;
             final String room = place.getText().toString().trim();
             saveBtn.setEnabled(false);
             deleteBtn.setEnabled(false);
             status.setText("正在保存并同步…");
             new Thread(() -> {
                 try {
-                    CalendarApi.saveItem(this, id, origFinal, day, kind, name, hour, room);
+                    CalendarApi.saveItem(this, id, origFinal, day, kind, name, start, end, room);
                     CalendarApi.syncToday(this);
                     runOnUiThread(() -> {
                         CalendarWidget.renderAll(this);
@@ -314,6 +298,94 @@ public final class QuickAddActivity extends Activity {
         if (win != null) {
             int width = (int) (getResources().getDisplayMetrics().widthPixels * 0.90f);
             win.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT);
+        }
+    }
+
+    private LinearLayout buildTimeControl(String label, boolean isStart) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+
+        TextView caption = new TextView(this);
+        caption.setText(label);
+        caption.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        caption.setTypeface(Typeface.DEFAULT_BOLD);
+        caption.setTextColor(KnitTheme.INK_MUTED);
+        caption.setPadding(dp(4), 0, dp(4), dp(4));
+        box.addView(caption);
+
+        LinearLayout line = new LinearLayout(this);
+        line.setOrientation(LinearLayout.HORIZONTAL);
+        line.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView pill = new TextView(this);
+        pill.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        pill.setTextColor(KnitTheme.INK_MUTED);
+        pill.setGravity(Gravity.CENTER_VERTICAL);
+        pill.setPadding(dp(14), dp(11), dp(14), dp(11));
+        pill.setBackground(KnitTheme.roundedRect(this, KnitTheme.SURFACE_SAND, KnitTheme.BORDER_LINEN, 1, 16));
+        pill.setOnClickListener(v -> {
+            Integer parsed = Items.parseMinutes(isStart ? startTimeStr : endTimeStr);
+            LocalTime now = LocalTime.now();
+            int hour = parsed == null ? now.getHour() : parsed / 60;
+            int minute = parsed == null ? now.getMinute() : parsed % 60;
+            new TimePickerDialog(this, (picker, h, m) -> {
+                String value = Items.formatMinutes(Integer.valueOf(h * 60 + m));
+                if (isStart) startTimeStr = value;
+                else endTimeStr = value;
+                refreshTimePills();
+            }, hour, minute, true).show();
+        });
+        line.addView(pill, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+
+        TextView clear = new TextView(this);
+        clear.setText("✕");
+        clear.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        clear.setGravity(Gravity.CENTER);
+        clear.setTextColor(KnitTheme.INK_SECONDARY);
+        clear.setBackground(KnitTheme.circle(this, KnitTheme.SURFACE_SAND, KnitTheme.BORDER_LINEN, 1));
+        clear.setOnClickListener(v -> {
+            if (isStart) {
+                startTimeStr = "";
+                endTimeStr = "";
+            } else {
+                endTimeStr = "";
+            }
+            refreshTimePills();
+        });
+        LinearLayout.LayoutParams clearLp = new LinearLayout.LayoutParams(dp(32), dp(32));
+        clearLp.leftMargin = dp(6);
+        line.addView(clear, clearLp);
+
+        box.addView(line);
+        if (isStart) {
+            startPill = pill;
+            startClear = clear;
+        } else {
+            endPill = pill;
+            endClear = clear;
+        }
+        return box;
+    }
+
+    private void refreshTimePills() {
+        if (startPill != null) {
+            startPill.setText(startTimeStr.isEmpty() ? "选择开始时间" : startTimeStr);
+            startPill.setTextColor(startTimeStr.isEmpty() ? KnitTheme.INK_MUTED : KnitTheme.INK_PRIMARY);
+        }
+        boolean hasStart = !startTimeStr.isEmpty();
+        if (endPill != null) {
+            endPill.setText(endTimeStr.isEmpty() ? "选择结束时间" : endTimeStr);
+            endPill.setTextColor(endTimeStr.isEmpty() ? KnitTheme.INK_MUTED : KnitTheme.INK_PRIMARY);
+            endPill.setEnabled(hasStart);
+            endPill.setAlpha(hasStart ? 1f : 0.45f);
+        }
+        if (startClear != null) {
+            startClear.setEnabled(!startTimeStr.isEmpty());
+            startClear.setAlpha(startTimeStr.isEmpty() ? 0.45f : 1f);
+        }
+        if (endClear != null) {
+            endClear.setEnabled(hasStart && !endTimeStr.isEmpty());
+            endClear.setAlpha(hasStart && !endTimeStr.isEmpty() ? 1f : 0.45f);
         }
     }
 

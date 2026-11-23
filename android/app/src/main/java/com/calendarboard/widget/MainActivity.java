@@ -1,6 +1,8 @@
 package com.calendarboard.widget;
 
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.app.DatePickerDialog;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -25,7 +27,6 @@ import org.json.JSONObject;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -210,11 +211,11 @@ public final class MainActivity extends Activity {
 
         if (!showingWeekTab) {
             // 3. Interactive Month Calendar Knit Card
-            root.addView(buildMonthCard(byDate));
+            root.addView(buildMonthCard(byDate, allItems));
 
             // 4. Selected Day Details
             root.addView(buildSelectedDayHeader());
-            root.addView(buildDayAgenda(selectedDate, byDate));
+            root.addView(buildDayAgenda(selectedDate, allItems));
         } else {
             // 7-Day Agenda View
             root.addView(buildSevenDayList(byDate));
@@ -223,8 +224,9 @@ public final class MainActivity extends Activity {
         // 5. Status Footer
         statusLabel = new TextView(this);
         String syncedAt = cache.optString("synced_at", "");
-        String footerText = syncing ? "正在与云端同步…"
-                : (syncedAt.isEmpty() ? "点右上角 ↻ 同步最新日程" : syncedAt + " 已同步 · 长按桌面可添加小组件");
+        String footerText = isReadOnly() ? "请升级应用"
+                : (syncing ? "正在与云端同步…"
+                : (syncedAt.isEmpty() ? "点右上角 ↻ 同步最新日程" : syncedAt + " 已同步 · 长按桌面可添加小组件"));
         statusLabel.setText(footerText);
         statusLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f);
         statusLabel.setTextColor(KnitTheme.INK_MUTED);
@@ -251,7 +253,7 @@ public final class MainActivity extends Activity {
         heading.setTextColor(KnitTheme.INK_PRIMARY);
         left.addView(heading);
 
-        String term = CalendarUtils.semesterWeekFull(selectedDate);
+        String term = CalendarUtils.semesterWeekFull(this, selectedDate);
         if (!term.isEmpty()) {
             TextView termPill = new TextView(this);
             termPill.setText(term);
@@ -272,7 +274,6 @@ public final class MainActivity extends Activity {
             renderScreen();
         }));
         bar.addView(circleAction("↻", 16, false, v -> refreshData(false)));
-        bar.addView(circleAction("＋", 17, true, v -> openQuickAdd(selectedDate, null)));
         bar.addView(circleAction("⋯", 16, false, this::showMoreMenu));
 
         return bar;
@@ -301,7 +302,10 @@ public final class MainActivity extends Activity {
         PopupMenu menu = new PopupMenu(this, anchor);
         menu.getMenu().add(0, 1, 0, "打开网页版日历");
         menu.getMenu().add(0, 2, 1, "刷新桌面小组件");
-        menu.getMenu().add(0, 3, 2, "退出登录");
+        menu.getMenu().add(0, 4, 2, "学期设置");
+        menu.getMenu().add(0, 3, 3, "退出登录");
+        boolean readOnly = isReadOnly();
+        menu.getMenu().findItem(4).setEnabled(!readOnly);
         menu.setOnMenuItemClickListener(item -> {
             if (item.getItemId() == 1) {
                 startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(WEBSITE)));
@@ -309,6 +313,10 @@ public final class MainActivity extends Activity {
             }
             if (item.getItemId() == 2) {
                 refreshData(false);
+                return true;
+            }
+            if (item.getItemId() == 4) {
+                showSemesterDialog();
                 return true;
             }
             if (item.getItemId() == 3) {
@@ -321,6 +329,130 @@ public final class MainActivity extends Activity {
             return false;
         });
         menu.show();
+    }
+
+    private boolean isReadOnly() {
+        JSONObject meta = SessionStore.cache(this).optJSONObject("meta");
+        return meta != null && meta.optInt("schemaVersion", 2) > Items.SUPPORTED_SCHEMA;
+    }
+
+    private void showSemesterDialog() {
+        if (isReadOnly()) {
+            if (statusLabel != null) statusLabel.setText("请升级应用");
+            return;
+        }
+        JSONObject cachedMeta = SessionStore.cache(this).optJSONObject("meta");
+        final JSONObject meta = cachedMeta == null ? Items.defaultMeta() : cachedMeta;
+
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(dp(20), dp(10), dp(20), dp(4));
+
+        EditText nameInput = buildInput("学期名称（1–12 个字）", InputType.TYPE_CLASS_TEXT);
+        nameInput.setText(meta.optString("termName", "2026秋"));
+        form.addView(nameInput);
+
+        final EditText startInput = buildInput("学期第一天（YYYY-MM-DD）", InputType.TYPE_CLASS_TEXT);
+        startInput.setText(meta.optString("termStart", "2026-08-31"));
+        startInput.setFocusable(false);
+        startInput.setClickable(true);
+        startInput.setOnClickListener(v -> {
+            LocalDate initial;
+            try {
+                initial = LocalDate.parse(startInput.getText().toString().trim());
+            } catch (Exception error) {
+                initial = LocalDate.now();
+            }
+            new DatePickerDialog(this, (picker, year, month, day) -> {
+                startInput.setText(LocalDate.of(year, month + 1, day).toString());
+            }, initial.getYear(), initial.getMonthValue() - 1, initial.getDayOfMonth()).show();
+        });
+        LinearLayout.LayoutParams startLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        startLp.topMargin = dp(10);
+        form.addView(startInput, startLp);
+
+        EditText weeksInput = buildInput("学期周数（1–30）", InputType.TYPE_CLASS_NUMBER);
+        weeksInput.setText(String.valueOf(meta.optInt("termWeeks", 20)));
+        LinearLayout.LayoutParams weeksLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        weeksLp.topMargin = dp(10);
+        form.addView(weeksInput, weeksLp);
+
+        TextView errorLabel = new TextView(this);
+        errorLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        errorLabel.setTextColor(KnitTheme.DANGER_CLAY);
+        errorLabel.setPadding(dp(4), dp(10), dp(4), 0);
+        form.addView(errorLabel);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("学期设置")
+                .setView(form)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("保存", null)
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener(v -> {
+                    String termName = nameInput.getText().toString().trim();
+                    if (termName.isEmpty() || termName.length() > 12) {
+                        errorLabel.setText("学期名称需为 1–12 个字");
+                        return;
+                    }
+                    String startText = startInput.getText().toString().trim();
+                    LocalDate termStart;
+                    try {
+                        termStart = LocalDate.parse(startText);
+                    } catch (Exception error) {
+                        errorLabel.setText("学期第一天格式应为 YYYY-MM-DD");
+                        return;
+                    }
+                    int termWeeks;
+                    try {
+                        termWeeks = Integer.parseInt(weeksInput.getText().toString().trim());
+                    } catch (Exception error) {
+                        errorLabel.setText("学期周数需为 1–30 的整数");
+                        return;
+                    }
+                    if (termWeeks < 1 || termWeeks > 30) {
+                        errorLabel.setText("学期周数需为 1–30 的整数");
+                        return;
+                    }
+
+                    JSONObject updated = new JSONObject();
+                    try {
+                        updated = new JSONObject(meta.toString());
+                        updated.put("termName", termName);
+                        updated.put("termStart", termStart.toString());
+                        updated.put("termWeeks", termWeeks);
+                        updated.put("type", "meta");
+                    } catch (Exception error) {
+                        errorLabel.setText("无法保存学期设置");
+                        return;
+                    }
+
+                    dialog.dismiss();
+                    if (statusLabel != null) statusLabel.setText("正在保存学期设置…");
+                    final JSONObject updatedMeta = updated;
+                    int reqGen = ++generation;
+                    executor.execute(() -> {
+                        try {
+                            CalendarApi.saveMeta(this, updatedMeta);
+                            runOnUiThread(() -> {
+                                if (reqGen == generation) {
+                                    CalendarWidget.renderAll(this);
+                                    renderScreen();
+                                }
+                            });
+                        } catch (Exception error) {
+                            runOnUiThread(() -> {
+                                if (reqGen == generation && statusLabel != null) {
+                                    statusLabel.setText("学期设置保存失败：" + error.getMessage());
+                                }
+                            });
+                        }
+                    });
+                }));
+        dialog.show();
     }
 
     private View buildTabSwitcher() {
@@ -357,7 +489,7 @@ public final class MainActivity extends Activity {
         return tv;
     }
 
-    private View buildMonthCard(Map<String, List<JSONObject>> byDate) {
+    private View buildMonthCard(Map<String, List<JSONObject>> byDate, List<JSONObject> allItems) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(14), dp(14), dp(14), dp(14));
@@ -420,7 +552,7 @@ public final class MainActivity extends Activity {
                 boolean inMonth = cellDate.getMonthValue() == displayMonth.getMonthValue();
                 boolean isToday = cellDate.equals(today);
                 boolean isSelected = cellDate.equals(selectedDate);
-                row.addView(buildDayCell(cellDate, inMonth, isToday, isSelected, byDate.get(cellDate.toString())));
+                row.addView(buildDayCell(cellDate, inMonth, isToday, isSelected, allItems));
             }
             card.addView(row);
         }
@@ -441,7 +573,7 @@ public final class MainActivity extends Activity {
         return tv;
     }
 
-    private View buildDayCell(LocalDate date, boolean inMonth, boolean isToday, boolean isSelected, List<JSONObject> dayItems) {
+    private View buildDayCell(LocalDate date, boolean inMonth, boolean isToday, boolean isSelected, List<JSONObject> allItems) {
         LinearLayout cell = new LinearLayout(this);
         cell.setOrientation(LinearLayout.VERTICAL);
         cell.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -469,15 +601,10 @@ public final class MainActivity extends Activity {
 
         // Holiday or Dots
         String holiday = inMonth ? CalendarUtils.holidayLabel(date) : "";
-        boolean hasCourse = false, hasTodo = false, hasSchedule = false;
-        if (dayItems != null) {
-            for (JSONObject item : dayItems) {
-                String t = item.optString("type");
-                if ("课程".equals(t)) hasCourse = true;
-                else if ("待办".equals(t) && !item.optBoolean("done")) hasTodo = true;
-                else if ("日程".equals(t)) hasSchedule = true;
-            }
-        }
+        Items.DayDots dotState = Items.dayDots(allItems, date.toString(), LocalDate.now().toString());
+        boolean hasCourse = dotState.course;
+        boolean hasTodo = dotState.todo;
+        boolean hasSchedule = dotState.schedule;
 
         if (hasCourse || hasTodo || hasSchedule) {
             LinearLayout dots = new LinearLayout(this);
@@ -548,49 +675,42 @@ public final class MainActivity extends Activity {
         row.addView(spacer, new LinearLayout.LayoutParams(0, 1, 1));
 
         TextView addBtn = new TextView(this);
-        addBtn.setText("＋ 添加当天");
+        addBtn.setText("＋ 添加到 " + selectedDate.getMonthValue() + "月" + selectedDate.getDayOfMonth() + "日");
         addBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         addBtn.setTypeface(Typeface.DEFAULT_BOLD);
         addBtn.setTextColor(KnitTheme.ACCENT_COCOA);
         addBtn.setPadding(dp(12), dp(6), dp(12), dp(6));
         addBtn.setBackground(KnitTheme.roundedRect(this, KnitTheme.SURFACE_OAT, KnitTheme.BORDER_LINEN, 1, 999));
+        boolean readOnly = isReadOnly();
+        addBtn.setEnabled(!readOnly);
+        addBtn.setAlpha(readOnly ? 0.45f : 1f);
         addBtn.setOnClickListener(v -> openQuickAdd(selectedDate, null));
         row.addView(addBtn);
 
         return row;
     }
 
-    private View buildDayAgenda(LocalDate date, Map<String, List<JSONObject>> byDate) {
+    private View buildDayAgenda(LocalDate date, List<JSONObject> allItems) {
         LinearLayout container = new LinearLayout(this);
         container.setOrientation(LinearLayout.VERTICAL);
 
         String dateStr = date.toString();
         String todayStr = LocalDate.now().toString();
-        List<JSONObject> dayItems = new ArrayList<>();
-        if (byDate.containsKey(dateStr)) dayItems.addAll(byDate.get(dateStr));
-
-        // Carry-over unfinished overdue todos onto today (matching Web & Widget behavior)
-        if (dateStr.equals(todayStr)) {
-            for (Map.Entry<String, List<JSONObject>> entry : byDate.entrySet()) {
-                if (entry.getKey().compareTo(todayStr) < 0) {
-                    for (JSONObject item : entry.getValue()) {
-                        if ("待办".equals(item.optString("type")) && !item.optBoolean("done")) {
-                            dayItems.add(item);
-                        }
-                    }
-                }
-            }
-        }
+        Items.DayItemsResult dayData = Items.dayItems(allItems, dateStr, todayStr);
 
         boolean anyGroup = false;
         for (String category : CATEGORIES) {
             List<JSONObject> list = new ArrayList<>();
-            for (JSONObject item : dayItems) {
-                if (category.equals(item.optString("type"))) list.add(item);
+            if ("课程".equals(category)) {
+                list.addAll(dayData.courses);
+            } else if (!dayData.past && "待办".equals(category)) {
+                list.addAll(dayData.todos);
+                if (dateStr.equals(todayStr)) list.addAll(dayData.pending);
+            } else if (!dayData.past && "日程".equals(category)) {
+                list.addAll(dayData.schedules);
             }
             if (list.isEmpty()) continue;
-            list.sort(Comparator.comparing((JSONObject i) -> i.optBoolean("done") ? 1 : 0)
-                    .thenComparing(i -> i.optString("time", "")));
+            list.sort(Items.BY_TIME);
 
             anyGroup = true;
             LinearLayout card = new LinearLayout(this);
@@ -639,7 +759,7 @@ public final class MainActivity extends Activity {
             emptyCard.addView(eTitle);
 
             TextView eSub = new TextView(this);
-            eSub.setText("点击右上角 ＋ 可随时记录课程、待办或日程");
+            eSub.setText("点上方「添加」可随时记录课程、待办或日程");
             eSub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
             eSub.setTextColor(KnitTheme.INK_MUTED);
             eSub.setPadding(0, dp(5), 0, 0);
@@ -685,6 +805,9 @@ public final class MainActivity extends Activity {
             quickBtn.setTextColor(KnitTheme.INK_SECONDARY);
             quickBtn.setGravity(Gravity.CENTER);
             quickBtn.setBackground(KnitTheme.circle(this, KnitTheme.SURFACE_SAND, KnitTheme.BORDER_LINEN, 1));
+            boolean readOnly = isReadOnly();
+            quickBtn.setEnabled(!readOnly);
+            quickBtn.setAlpha(readOnly ? 0.45f : 1f);
             quickBtn.setOnClickListener(v -> openQuickAdd(date, null));
             header.addView(quickBtn, new LinearLayout.LayoutParams(dp(26), dp(26)));
             card.addView(header);
@@ -695,7 +818,7 @@ public final class MainActivity extends Activity {
                     if (!item.optBoolean("done")) list.add(item);
                 }
             }
-            list.sort(Comparator.comparing(i -> i.optString("time", "")));
+            list.sort(Items.BY_TIME);
 
             if (list.isEmpty()) {
                 TextView empty = new TextView(this);
@@ -744,6 +867,9 @@ public final class MainActivity extends Activity {
                     1.5f));
             LinearLayout.LayoutParams cLp = new LinearLayout.LayoutParams(dp(22), dp(22));
             cLp.rightMargin = dp(10);
+            boolean readOnly = isReadOnly();
+            check.setEnabled(!readOnly);
+            check.setAlpha(readOnly ? 0.45f : 1f);
             check.setOnClickListener(v -> toggleTodo(item, !done));
             row.addView(check, cLp);
         } else {
@@ -893,6 +1019,10 @@ public final class MainActivity extends Activity {
     }
 
     private void toggleTodo(JSONObject item, boolean done) {
+        if (isReadOnly()) {
+            if (statusLabel != null) statusLabel.setText("请升级应用");
+            return;
+        }
         String rowId = item.optString("_row_id", "");
         if (rowId.isEmpty()) {
             if (statusLabel != null) statusLabel.setText("无法识别事项，请先点击 ↻ 刷新");
