@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import SwiftUI
+import UniformTypeIdentifiers
 import DynamicNotchKit
 
 enum IslandSurface: String {
@@ -28,6 +29,7 @@ enum IslandPresentationMode: Equatable {
     case compact
     case prompt(text: String, targetSurface: String)
     case expanded
+    case dropTarget
 }
 
 @MainActor
@@ -212,8 +214,8 @@ final class IslandController: ObservableObject, WebBridgeDelegate {
             hoverBehavior: [],
             style: .auto,
             expanded: { ExpandedIslandView(controller: self) },
-            compactLeading: { CompactLeadingView(timeline: self.timeline) },
-            compactTrailing: { CompactTrailingView(timeline: self.timeline) }
+            compactLeading: { CompactLeadingView(controller: self) },
+            compactTrailing: { CompactTrailingView(controller: self) }
         )
         self.notch = notch
 
@@ -375,6 +377,46 @@ final class IslandController: ObservableObject, WebBridgeDelegate {
         webBridge.openSettings()
     }
 
+    // MARK: - Drag and drop
+
+    func beginDropHover() {
+        expandTimer?.invalidate()
+        expandTimer = nil
+        collapseTimer?.invalidate()
+        collapseTimer = nil
+        promptTimer?.invalidate()
+        promptTimer = nil
+
+        guard mode != .expanded else { return }
+
+        mode = .dropTarget
+        onStateChanged?()
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.notch.expand(on: self.targetScreen())
+            self.applyWindowAppearance()
+        }
+    }
+
+    func endDropHover() {
+        guard mode == .dropTarget else { return }
+        mode = .hidden
+        refreshCompactOrHidden()
+    }
+
+    func handleDrop(text: String?, fileURL: String?) {
+        expandTimer?.invalidate()
+        expandTimer = nil
+        collapseTimer?.invalidate()
+        collapseTimer = nil
+        promptTimer?.invalidate()
+        promptTimer = nil
+
+        expand(surface: .quickAdd, activateKeyboard: true, pin: true)
+        webBridge.dropPayload(text: text, fileURL: fileURL)
+    }
+
     // MARK: - Prompt
 
     func showPrompt(text: String, targetSurface: String) {
@@ -463,44 +505,62 @@ struct ExpandedIslandView: View {
     @ObservedObject var controller: IslandController
 
     var body: some View {
-        switch controller.mode {
-        case .compact:
-            HStack(spacing: 8) {
-                CompactLeadingView(timeline: controller.timeline)
-                CompactTrailingView(timeline: controller.timeline)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 2)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                controller.expand(surface: .today, activateKeyboard: false, pin: false)
-            }
+        Group {
+            switch controller.mode {
+            case .compact:
+                HStack(spacing: 8) {
+                    CompactLeadingView(controller: controller)
+                    CompactTrailingView(controller: controller)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 2)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    controller.expand(surface: .today, activateKeyboard: false, pin: false)
+                }
 
-        case .prompt(let text, let targetSurface):
-            HStack(spacing: 8) {
-                Image(systemName: "bell.badge.fill")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(islandTodoColor)
-                Text(text)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.white)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                let target = IslandSurface(rawValue: targetSurface) ?? .today
-                controller.expand(surface: target, activateKeyboard: false, pin: true)
-            }
+            case .prompt(let text, let targetSurface):
+                HStack(spacing: 8) {
+                    Image(systemName: "bell.badge.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(islandTodoColor)
+                    Text(text)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.white)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    let target = IslandSurface(rawValue: targetSurface) ?? .today
+                    controller.expand(surface: target, activateKeyboard: false, pin: true)
+                }
 
-        case .expanded:
-            let size = clampedSize(for: controller.surface)
-            WebViewHostRepresentable(bridge: controller.webBridge)
-                .frame(width: size.width, height: size.height)
+            case .dropTarget:
+                HStack(spacing: 8) {
+                    Image(systemName: "tray.and.arrow.down.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(islandTodoColor)
+                    Text("松手创建待办")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 12)
 
-        case .hidden:
-            EmptyView()
+            case .expanded:
+                let size = clampedSize(for: controller.surface)
+                WebViewHostRepresentable(bridge: controller.webBridge)
+                    .frame(width: size.width, height: size.height)
+
+            case .hidden:
+                EmptyView()
+            }
         }
+        .onDrop(
+            of: [.fileURL, .utf8PlainText, .plainText],
+            delegate: IslandDropDelegate(controller: controller)
+        )
     }
 
     private func clampedSize(for surface: IslandSurface) -> CGSize {
@@ -512,5 +572,102 @@ struct ExpandedIslandView: View {
             width: min(preferred.width, visibleFrame.width),
             height: min(preferred.height, visibleFrame.height)
         )
+    }
+}
+
+struct IslandDropDelegate: DropDelegate {
+    let controller: IslandController
+
+    func validateDrop(info: DropInfo) -> Bool {
+        info.hasItemsConforming(to: [.fileURL, .utf8PlainText, .plainText])
+    }
+
+    func dropEntered(info: DropInfo) {
+        Task { @MainActor in
+            controller.beginDropHover()
+        }
+    }
+
+    func dropExited(info: DropInfo) {
+        Task { @MainActor in
+            controller.endDropHover()
+        }
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        let providers = info.itemProviders(for: [.fileURL, .utf8PlainText, .plainText])
+
+        if let provider = providers.first(where: {
+            $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)
+        }) {
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                guard let url = Self.resolveFileURL(from: item) else { return }
+                Task { @MainActor in
+                    controller.handleDrop(text: nil, fileURL: url.absoluteString)
+                }
+            }
+            return true
+        }
+
+        let textTypes = [UTType.utf8PlainText, UTType.plainText]
+        let textProvider = providers.first(where: { provider in
+            textTypes.contains(where: { provider.hasItemConformingToTypeIdentifier($0.identifier) })
+        })
+        if let provider = textProvider,
+           let type = textTypes.first(where: { provider.hasItemConformingToTypeIdentifier($0.identifier) }) {
+            provider.loadItem(forTypeIdentifier: type.identifier, options: nil) { item, _ in
+                guard let text = Self.resolveText(from: item) else { return }
+                Task { @MainActor in
+                    controller.handleDrop(text: text, fileURL: nil)
+                }
+            }
+            return true
+        }
+
+        return false
+    }
+
+    private static func resolveFileURL(from item: NSSecureCoding?) -> URL? {
+        if let url = item as? URL {
+            return url
+        }
+        if let url = item as? NSURL {
+            return url as URL
+        }
+        if let data = item as? Data {
+            if let url = URL(dataRepresentation: data, relativeTo: nil) {
+                return url
+            }
+            if let raw = String(data: data, encoding: .utf8) {
+                if let url = URL(string: raw) {
+                    return url
+                }
+                if raw.hasPrefix("/") {
+                    return URL(fileURLWithPath: raw)
+                }
+            }
+        }
+        if let raw = item as? String {
+            if let url = URL(string: raw) {
+                return url
+            }
+            if raw.hasPrefix("/") {
+                return URL(fileURLWithPath: raw)
+            }
+        }
+        return nil
+    }
+
+    private static func resolveText(from item: NSSecureCoding?) -> String? {
+        if let text = item as? String {
+            return text
+        }
+        if let data = item as? Data, let text = String(data: data, encoding: .utf8) {
+            return text
+        }
+        if let attributed = item as? NSAttributedString {
+            return attributed.string
+        }
+        return nil
     }
 }

@@ -540,6 +540,20 @@ button {
   background: var(--card-hover);
 }
 
+.entry-link-btn {
+  flex-shrink: 0;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(125, 211, 252, 0.35);
+  background: rgba(125, 211, 252, 0.10);
+  font-size: 11px;
+  color: var(--course);
+}
+
+.entry-link-btn:hover {
+  background: rgba(125, 211, 252, 0.20);
+}
+
 /* 7-Day View */
 .week-day-block {
   background: var(--card-bg);

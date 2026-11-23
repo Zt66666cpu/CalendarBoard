@@ -85,6 +85,7 @@ const state = {
   surface: 'today', // 'today' | 'month' | 'quickAdd' | 'review'
   surfaceStyle: 'notch', // 'notch' | 'floating'
   quickAddTypeOverride: null, // null | '日程' | '待办'
+  quickAddPendingLink: '',
   recentDoneIds: new Set(),
   undoTimers: new Map(),
   subview: null, // null | 'review' | 'archive'
@@ -399,6 +400,7 @@ function setSurface(name, notifyNative = true) {
 
   if (name === 'quickAdd') {
     state.quickAddTypeOverride = null;
+    state.quickAddPendingLink = '';
     renderQuickAdd();
     setTimeout(() => $('quickAddInput')?.focus(), 30);
   }
@@ -417,6 +419,44 @@ window.__nativeNotice = function (msg) {
 window.__triggerSync = function () {
   checkDateRollover();
   syncItems();
+};
+window.__dropPayload = function (payload) {
+  const data = payload && typeof payload === 'object' ? payload : {};
+  const fileURL = typeof data.fileURL === 'string' ? data.fileURL.trim() : '';
+  const text = typeof data.text === 'string' ? data.text : '';
+
+  let title = '';
+  let pendingLink = '';
+  if (fileURL) {
+    let name = fileURL;
+    try {
+      const parsed = new URL(fileURL);
+      name = parsed.pathname.split('/').filter(Boolean).pop() || fileURL;
+    } catch {
+      name = fileURL.split('/').filter(Boolean).pop() || fileURL;
+    }
+    try {
+      name = decodeURIComponent(name);
+    } catch {
+      // 保留原始文件名
+    }
+    title = `处理：${name}`.slice(0, 80);
+    pendingLink = fileURL;
+  } else {
+    const firstLine = text.split(/\r?\n/).map((line) => line.trim()).find(Boolean) || '';
+    title = firstLine.slice(0, 80);
+  }
+
+  setSurface('quickAdd', false);
+  state.quickAddPendingLink = pendingLink;
+  state.quickAddTypeOverride = '待办';
+  const input = $('quickAddInput');
+  if (input) {
+    input.value = title;
+    input.focus();
+  }
+  renderQuickAdd();
+  setTimeout(() => $('quickAddInput')?.focus(), 30);
 };
 
 function renderModeBadge() {
@@ -607,6 +647,20 @@ function createEntryMain(item, metaText) {
   return main;
 }
 
+function entryLinkButton(item) {
+  if (!item || typeof item.link !== 'string' || !item.link) return null;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'entry-link-btn';
+  btn.textContent = '打开文件';
+  btn.title = '打开关联文件';
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    postNative({ action: 'openExternal', url: item.link });
+  });
+  return btn;
+}
+
 function renderDayList() {
   const dayData = CBCore.dayItems(state.items, state.selected, state.todayIso, state.recentDoneIds);
   const isToday = state.selected === state.todayIso;
@@ -658,6 +712,8 @@ function renderDayList() {
     card.className = `entry-card${done ? ' recent-done' : ''}`;
     const metaParts = [item.time, itemPlace(item)].filter(Boolean);
     card.append(createEntryMain(item, metaParts.join(' · ')));
+    const linkBtn = entryLinkButton(item);
+    if (linkBtn) card.append(linkBtn);
     const btn = done
       ? actionButton('撤销', () => undoCompleteTodo(item.id))
       : actionButton('已完成', () => completeTodo(item));
@@ -679,6 +735,8 @@ function renderDayList() {
     const card = document.createElement('div');
     card.className = `entry-card${done ? ' recent-done' : ''}`;
     card.append(createEntryMain(item, `原定 ${formatMonthDay(item.date)}`));
+    const pendingLinkBtn = entryLinkButton(item);
+    if (pendingLinkBtn) card.append(pendingLinkBtn);
     const actions = document.createElement('div');
     actions.className = 'entry-actions';
     if (done) {
@@ -1237,6 +1295,10 @@ function openEntryModal(item = null, defaultType = '日程') {
   $('entryEnd').value = CBCore.formatMinutes(CBCore.itemEnd(item));
   $('entryPlace').value = itemPlace(item || {});
   $('deleteEntryBtn').classList.toggle('hidden', !item);
+  $('openLinkBtn').classList.toggle(
+    'hidden',
+    !(item && typeof item.link === 'string' && item.link)
+  );
   resetDeleteConfirm();
   syncEntryEndState();
 
@@ -1642,6 +1704,9 @@ async function saveQuickAdd() {
     place: '',
     done: false,
   };
+  if (state.quickAddPendingLink) {
+    payload.link = state.quickAddPendingLink;
+  }
   if (isLocalMode()) {
     state.items.push({ ...payload, id: makeUuid32() });
     storeSet('demoItems', state.items);
@@ -1658,6 +1723,7 @@ async function saveQuickAdd() {
   const input = $('quickAddInput');
   if (input) input.value = '';
   state.quickAddTypeOverride = null;
+  state.quickAddPendingLink = '';
   setSurface('today');
   renderAll();
   postNative({ action: 'collapse' });
@@ -1667,6 +1733,7 @@ function cancelQuickAdd() {
   const input = $('quickAddInput');
   if (input) input.value = '';
   state.quickAddTypeOverride = null;
+  state.quickAddPendingLink = '';
   setSurface('today');
   renderAll();
   postNative({ action: 'collapse' });
@@ -1737,6 +1804,11 @@ $('closeEntryModal').addEventListener('click', closeEntryModal);
 $('cancelEntryBtn').addEventListener('click', closeEntryModal);
 $('entryForm').addEventListener('submit', saveEntry);
 $('entryStart').addEventListener('input', syncEntryEndState);
+$('openLinkBtn').addEventListener('click', () => {
+  const link = state.editing && typeof state.editing.link === 'string' ? state.editing.link : '';
+  if (!link) return;
+  postNative({ action: 'openExternal', url: link });
+});
 $('deleteEntryBtn').addEventListener('click', () => {
   if (!state.editing) return;
   if (!state.deleteConfirmArmed) {

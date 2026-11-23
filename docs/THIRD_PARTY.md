@@ -9,6 +9,7 @@
 | androidx.core:core | 1.17.0 | Apache-2.0 | AndroidX 核心兼容工具（ContextCompat 等） | P3 |
 | androidx.appcompat:appcompat | 1.7.0 | Apache-2.0 | AppCompat 兼容组件与主题支持 | P3 |
 | com.google.android.material:material | 1.12.0 | Apache-2.0 | Material 3 组件与 DayNight 主题 | P3 |
+| Material Symbols | 2024 图标集（矢量导出） | Apache-2.0 | Android 矢量图标设计来源（`res/drawable/ic_*.xml`，无运行时依赖） | P3 |
 | androidx.recyclerview:recyclerview | 1.3.2 | Apache-2.0 | 列表视图组件 | P3 |
 | androidx.viewpager2:viewpager2 | 1.1.0 | Apache-2.0 | 横向分页视图组件 | P3 |
 | junit:junit | 4.13.2 | EPL-1.0 | JVM 单元测试框架 | P3 |
@@ -56,3 +57,24 @@
 6. 刘海判定使用 `NSScreen.auxiliaryTopLeftArea` 与 `auxiliaryTopRightArea` 是否同时存在；启动时及 `NSApplication.didChangeScreenParametersNotification` 时需重新计算并向 Web 层同步 `notch` / `floating` 外观。
 7. `DynamicNotch` 默认容器窗口尺寸不足以容纳 `860×560` 的月历视图，展开后必须将面板窗口夹紧到屏幕可见区域并至少保持半屏宽高，水平居中贴顶，避免内容被裁切。
 8. `WKWebView` 不随课程岛隐藏而销毁：使用屏幕外透明保活窗口（`alphaValue = 0`、`ignoresMouseEvents = true`、`orderBack`）承载 WebView，隐藏时调用 `attachToKeepAliveWindow()`，从而保留页面状态、会话与 JavaScript 定时器。
+
+## Material Symbols（Android 矢量图标）
+
+- **出处**：Google Material Symbols 图标集 <https://fonts.google.com/icons>，许可证 `Apache-2.0`。
+- **用途**：Android 端 `res/drawable/ic_add.xml`、`ic_check.xml`、`ic_chevron_left.xml`、`ic_chevron_right.xml`、`ic_close.xml`、`ic_more.xml`、`ic_refresh.xml`、`ic_stat_calendar.xml` 等矢量图标以 Material Symbols 为设计来源手工导出。
+- **依赖形态**：仅提交静态 VectorDrawable XML，不引入图标字体、Gradle 依赖或运行时资源，因此不影响 APK 体积与启动。
+- **许可保留**：Material Symbols 的 Apache-2.0 许可与上游一致；如后续替换图标，需继续保留同许可证或在本表补充新来源。
+
+## 登记完整性核对（v3.0）
+
+| 类别 | 依赖 | 状态 |
+| --- | --- | --- |
+| AndroidX | `androidx.core:core`、`androidx.appcompat:appcompat`、`androidx.recyclerview:recyclerview`、`androidx.viewpager2:viewpager2` | 已登记 |
+| Material | `com.google.android.material:material` | 已登记 |
+| 图标 | Material Symbols（静态 VectorDrawable） | 已登记 |
+| macOS 课程岛 | DynamicNotchKit 1.1.0（本地 Vendor） | 已登记 |
+| macOS 快捷键 | KeyboardShortcuts 1.9.4 | 已登记 |
+| 自然语言解析 | chrono-node 2.10.3（esbuild IIFE） | 已登记 |
+| 测试 | junit 4.13.2、org.json 20240303 | 已登记 |
+
+> 版本冻结说明：v3.0 未新增任何第三方依赖；上表版本与各端构建文件保持一致。

@@ -147,7 +147,11 @@ final class WebBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             "text": text ?? NSNull(),
             "fileURL": fileURL ?? NSNull()
         ]
-        evaluateJS("window.__dropPayload && window.__dropPayload(\(jsonLiteral(payload)));")
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let json = String(data: data, encoding: .utf8) else {
+            return
+        }
+        evaluateJS("window.__dropPayload && window.__dropPayload(\(json));")
     }
 
     func notifyWebError(_ message: String) {
@@ -170,7 +174,7 @@ final class WebBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             "store": snapshot,
             "state": [
                 "surface": delegate?.currentSurfaceRawValue ?? "today",
-                "surfaceStyle": delegate?.currentSurfaceStyleRawValue ?? "regular"
+                "surfaceStyle": delegate?.currentSurfaceStyleRawValue ?? "notch"
             ]
         ]
         if let data = try? JSONSerialization.data(withJSONObject: initPayload),

@@ -1,14 +1,29 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 let islandCourseColor = Color(red: 0x7D / 255.0, green: 0xD3 / 255.0, blue: 0xFC / 255.0)
 let islandTodoColor = Color(red: 0xFB / 255.0, green: 0xBF / 255.0, blue: 0x24 / 255.0)
 let islandSecondaryText = Color.white.opacity(0.64)
 
+private let islandDropTypes: [UTType] = [.fileURL, .utf8PlainText, .plainText]
+
 struct CompactLeadingView: View {
+    let controller: IslandController
     @ObservedObject var timeline: IslandTimeline
+
+    init(controller: IslandController) {
+        self.controller = controller
+        self._timeline = ObservedObject(wrappedValue: controller.timeline)
+    }
 
     @ViewBuilder
     var body: some View {
+        content
+            .onDrop(of: islandDropTypes, delegate: IslandDropDelegate(controller: controller))
+    }
+
+    @ViewBuilder
+    private var content: some View {
         switch timeline.compactState {
         case .inClass, .upcomingSoon:
             Image(systemName: "book.closed.fill")
@@ -29,10 +44,22 @@ struct CompactLeadingView: View {
 }
 
 struct CompactTrailingView: View {
+    let controller: IslandController
     @ObservedObject var timeline: IslandTimeline
+
+    init(controller: IslandController) {
+        self.controller = controller
+        self._timeline = ObservedObject(wrappedValue: controller.timeline)
+    }
 
     @ViewBuilder
     var body: some View {
+        content
+            .onDrop(of: islandDropTypes, delegate: IslandDropDelegate(controller: controller))
+    }
+
+    @ViewBuilder
+    private var content: some View {
         switch timeline.compactState {
         case .inClass(let remaining, let progress, _):
             HStack(spacing: 5) {
