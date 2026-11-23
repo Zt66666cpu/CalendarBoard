@@ -13,3 +13,26 @@
 | androidx.viewpager2:viewpager2 | 1.1.0 | Apache-2.0 | 横向分页视图组件 | P3 |
 | junit:junit | 4.13.2 | EPL-1.0 | JVM 单元测试框架 | P3 |
 | org.json:json | 20240303 | Public Domain | JVM 单元测试中的 org.json 实现 | P3 |
+| DynamicNotchKit | 1.1.0 | MIT | macOS 刘海 / 无刘海课程岛容器、展开收起与过渡动效；本地 Vendor 化并做 CLT 宏兼容 | P4 |
+| KeyboardShortcuts | 1.9.4 | MIT | 全局快捷键注册、快捷键录制窗口与本地化资源 | P4 |
+
+## P4.2 DynamicNotchKit 本地化（CLT 宏兼容）
+
+- **原项目出处**：<https://github.com/MrKai77/DynamicNotchKit>，锁定 tag `1.1.0`（commit `cd0b3e52d537db115ad3a9d89601f20e0bee8d27`）。
+- **许可证**：MIT，原始许可证文本随源码保留在 `macos-widget/Vendor/DynamicNotchKit/LICENSE`（Copyright (c) 2025 Kai Azim）。
+- **引入方式**：源码复制到 `macos-widget/Vendor/DynamicNotchKit`，`Package.swift` 由远程版本依赖改为 `.package(path: "Vendor/DynamicNotchKit")`；同时移除未使用的 `swift-docc-plugin` 依赖与测试 target，只保留 `DynamicNotchKit` library target（`.macOS(.v13)`）。
+- **本地化原因**：本机仅有 Command Line Tools（无完整 `Xcode.app`），缺少 `libSwiftUIMacros.dylib`。仓库自带的 `MacOSX27.0.sdk` 将 `@State` 等改为外部宏，CLT 无法展开；`build.sh` 因此在 CLT-only 环境自动选择 `MacOSX26.5.sdk`。在此基础上，DynamicNotchKit 1.1.0 仍有两处宏用法不兼容，故作最小替换：
+  1. `Sources/DynamicNotchKit/Utility/EnvironmentValues+Extensions.swift`：将 2 处 `@Entry` 改为经典 `EnvironmentKey` 实现（`notchStyle` / `notchSection`），行为不变。
+  2. `Sources/DynamicNotchKit/Views/NotchShape.swift`：删除末尾仅供 Xcode 画布使用的 `#Preview` 代码块。
+- 除上述两处外未改动上游实现；后续若升级 DynamicNotchKit，需重新核对宏兼容性，或改回上游远程依赖。
+
+## P4.1 依赖核实结论（DynamicNotchKit 1.1.0 / KeyboardShortcuts 1.9.4）
+
+1. `DynamicNotch` 是 `@MainActor` 的泛型可观察对象，泛型参数依次为展开视图、左侧紧凑视图、右侧紧凑视图；初始化器参数为 `hoverBehavior`、`style`、`expanded`、`compactLeading`、`compactTrailing`，`style: .auto` 可自动适配有刘海与无刘海屏幕。
+2. `expand(on:)`、`compact(on:)`、`hide()` 均为异步方法；在无刘海屏幕的 `.floating` 风格下，`compact(on:)` 会直接转为 `hide()`，因此无刘海屏幕的紧凑态必须由外层改用 `expand(on:)`，并在 `ExpandedIslandView` 中依据 `mode == .compact && isFloatingScreen` 渲染浮动小胶囊。
+3. 悬停状态通过 `isHovering` 与 Combine 的 `$isHovering` 暴露，可 `removeDuplicates()` 后驱动 200ms 悬停展开、300ms 移出收起，且悬停展开不得调用 `makeKey()` 抢占键盘焦点。
+4. 过渡动效通过 `DynamicNotchTransitionConfiguration` 配置，四参数为 `openingAnimation`、`closingAnimation`、`conversionAnimation`、`skipIntermediateHides`；开启“减弱动态效果”时应改用 0.20s `.easeInOut`。
+5. 面板窗口可通过 `windowController?.window` 取得，窗口为无边框、非激活型 `NSPanel`，`canBecomeKey == true`；需要键盘输入时调用 `makeKey()` 即可，无需额外切换激活策略。
+6. 刘海判定使用 `NSScreen.auxiliaryTopLeftArea` 与 `auxiliaryTopRightArea` 是否同时存在；启动时及 `NSApplication.didChangeScreenParametersNotification` 时需重新计算并向 Web 层同步 `notch` / `floating` 外观。
+7. `DynamicNotch` 默认容器窗口尺寸不足以容纳 `860×560` 的月历视图，展开后必须将面板窗口夹紧到屏幕可见区域并至少保持半屏宽高，水平居中贴顶，避免内容被裁切。
+8. `WKWebView` 不随课程岛隐藏而销毁：使用屏幕外透明保活窗口（`alphaValue = 0`、`ignoresMouseEvents = true`、`orderBack`）承载 WebView，隐藏时调用 `attachToKeepAliveWindow()`，从而保留页面状态、会话与 JavaScript 定时器。
