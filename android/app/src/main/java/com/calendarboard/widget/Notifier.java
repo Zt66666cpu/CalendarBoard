@@ -105,6 +105,11 @@ final class Notifier {
         return manager != null && manager.canPostPromotedNotifications();
     }
 
+    /** Android 16 上返回用户是否允许上岛；更低版本返回 true（不适用，不提示） */
+    static boolean promotionAllowedOrNotApplicable(Context c) {
+        return Build.VERSION.SDK_INT < 36 || canPostPromoted(c);
+    }
+
     static void cancelCourseIsland(Context context) {
         if (context == null) return;
         NotificationManagerCompat.from(context).cancel(ID_ISLAND);

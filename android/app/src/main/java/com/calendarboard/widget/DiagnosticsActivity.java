@@ -3,16 +3,11 @@ package com.calendarboard.widget;
 import android.app.AlarmManager;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
-import android.content.ComponentName;
 import android.content.Context;
-import android.content.Intent;
 import android.content.SharedPreferences;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.PowerManager;
-import android.provider.Settings;
-import android.util.Log;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
@@ -39,13 +34,15 @@ import java.util.Map;
 
 /** In-app health check for reminders, permissions and Xiaomi background restrictions. */
 public final class DiagnosticsActivity extends AppCompatActivity {
-    private static final String TAG = "CalendarBoardDiagnostics";
+    static final String EXTRA_SCROLL_XIAOMI = "extra_scroll_xiaomi";
     private static final DateTimeFormatter NEXT_FORMAT =
             DateTimeFormatter.ofPattern("M月d日 HH:mm", Locale.ROOT);
 
     private final Map<String, TextView> timeValues = new LinkedHashMap<>();
     private final Map<String, TextView> permissionValues = new LinkedHashMap<>();
 
+    private ScrollView scrollView;
+    private View xiaomiCard;
     private TextView syncValue;
     private TextView cacheCountValue;
     private Switch islandSwitch;
@@ -63,6 +60,10 @@ public final class DiagnosticsActivity extends AppCompatActivity {
             window.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
         }
         setContentView(buildContent());
+        if (getIntent().getBooleanExtra(EXTRA_SCROLL_XIAOMI, false)
+                && scrollView != null && xiaomiCard != null) {
+            scrollView.post(() -> scrollView.smoothScrollTo(0, xiaomiCard.getTop()));
+        }
     }
 
     @Override protected void onResume() {
@@ -72,23 +73,24 @@ public final class DiagnosticsActivity extends AppCompatActivity {
     }
 
     private View buildContent() {
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.setBackground(KnitTheme.knitCanvasBackground(this));
+        scrollView = new ScrollView(this);
+        scrollView.setFillViewport(true);
+        scrollView.setBackground(KnitTheme.knitCanvasBackground(this));
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(18), dp(18), dp(18), dp(28));
-        scroll.addView(root, new ViewGroup.LayoutParams(
+        scrollView.addView(root, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         root.addView(buildTopBar());
         root.addView(buildSummaryCard());
         root.addView(buildReminderCard());
         root.addView(buildPermissionCard());
-        root.addView(buildXiaomiCard());
+        xiaomiCard = buildXiaomiCard();
+        root.addView(xiaomiCard);
         root.addView(buildActions());
-        return scroll;
+        return scrollView;
     }
 
     private View buildTopBar() {
@@ -152,19 +154,22 @@ public final class DiagnosticsActivity extends AppCompatActivity {
         card.addView(sectionTitle("权限状态"));
         card.addView(buildIslandToggle());
 
-        addPermissionRow(card, "notifications", "通知总开关", this::openNotificationSettings);
+        addPermissionRow(card, "notifications", "通知总开关",
+                () -> SystemSettings.openNotificationSettings(this));
         addPermissionRow(card, "promoted", "超级岛（实时更新）",
-                this::openNotificationSettings);
+                () -> SystemSettings.openPromotionSettings(this));
         addPermissionRow(card, Notifier.CHANNEL_MORNING, "早安摘要渠道",
-                () -> openChannelSettings(Notifier.CHANNEL_MORNING));
+                () -> SystemSettings.openChannelSettings(this, Notifier.CHANNEL_MORNING));
         addPermissionRow(card, Notifier.CHANNEL_TODO, "待办提醒渠道",
-                () -> openChannelSettings(Notifier.CHANNEL_TODO));
+                () -> SystemSettings.openChannelSettings(this, Notifier.CHANNEL_TODO));
         addPermissionRow(card, Notifier.CHANNEL_AHEAD, "提前提醒渠道",
-                () -> openChannelSettings(Notifier.CHANNEL_AHEAD));
+                () -> SystemSettings.openChannelSettings(this, Notifier.CHANNEL_AHEAD));
         addPermissionRow(card, Notifier.CHANNEL_ISLAND, "课程岛渠道",
-                () -> openChannelSettings(Notifier.CHANNEL_ISLAND));
-        addPermissionRow(card, "exact", "精确闹钟", this::openExactAlarmSettings);
-        addPermissionRow(card, "battery", "忽略电池优化", this::openBatterySettings);
+                () -> SystemSettings.openChannelSettings(this, Notifier.CHANNEL_ISLAND));
+        addPermissionRow(card, "exact", "精确闹钟",
+                () -> SystemSettings.openExactAlarmSettings(this));
+        addPermissionRow(card, "battery", "忽略电池优化",
+                () -> SystemSettings.openBatterySettings(this));
         return card;
     }
 
@@ -172,13 +177,13 @@ public final class DiagnosticsActivity extends AppCompatActivity {
         LinearLayout card = card();
         card.addView(sectionTitle("小米手机专项设置"));
         addGuideRow(card, "自启动", "允许应用被系统唤醒，避免重启后提醒失效。",
-                "去设置", this::openMiuiAutostart);
+                "去设置", () -> SystemSettings.openMiuiAutostart(this));
         addGuideRow(card, "省电策略设为无限制", "避免后台同步与闹钟被系统切断。",
-                "去设置", this::openMiuiPowerSettings);
+                "去设置", () -> SystemSettings.openMiuiPowerSettings(this));
         addGuideRow(card, "锁屏通知", "允许锁屏时显示提醒，便于直接看到待办。",
-                "去设置", this::openLockScreenSettings);
+                "去设置", () -> SystemSettings.openLockScreenSettings(this));
         addGuideRow(card, "最近任务里加锁", "在最近任务卡片中下拉加锁，防止应用被清理。",
-                "去设置", this::openMiuiRecentLock);
+                "去设置", () -> SystemSettings.openMiuiRecentLock(this));
         return card;
     }
 
@@ -464,78 +469,5 @@ public final class DiagnosticsActivity extends AppCompatActivity {
     private String formatNext(long millis) {
         if (millis <= 0L) return "未排定";
         return Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).format(NEXT_FORMAT);
-    }
-
-    private void openNotificationSettings() {
-        Intent intent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
-        launchOrDetails(intent);
-    }
-
-    private void openChannelSettings(String channelId) {
-        Intent intent = new Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
-                .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName())
-                .putExtra(Settings.EXTRA_CHANNEL_ID, channelId);
-        launchOrDetails(intent);
-    }
-
-    private void openExactAlarmSettings() {
-        if (Build.VERSION.SDK_INT < 31) {
-            Toast.makeText(this, "当前系统默认允许精确闹钟", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        Intent intent = new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
-                Uri.parse("package:" + getPackageName()));
-        launchOrDetails(intent);
-    }
-
-    private void openBatterySettings() {
-        launchOrDetails(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
-    }
-
-    private void openMiuiAutostart() {
-        Intent intent = new Intent().setComponent(new ComponentName(
-                "com.miui.securitycenter",
-                "com.miui.permcenter.autostart.AutoStartManagementActivity"));
-        launchOrDetails(intent);
-    }
-
-    private void openMiuiPowerSettings() {
-        Intent intent = new Intent().setComponent(new ComponentName(
-                "com.miui.securitycenter", "com.miui.powercenter.PowerSettings"));
-        launchOrDetails(intent);
-    }
-
-    private void openLockScreenSettings() {
-        Intent intent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
-        launchOrDetails(intent);
-    }
-
-    private void openMiuiRecentLock() {
-        Intent intent = new Intent("miui.intent.action.APP_PERM_EDITOR")
-                .putExtra("extra_pkgname", getPackageName())
-                .putExtra("packagename", getPackageName());
-        launchOrDetails(intent);
-    }
-
-    private void launchOrDetails(Intent intent) {
-        try {
-            startActivity(intent);
-        } catch (Exception error) {
-            Log.w(TAG, "无法打开系统设置页，改为应用详情", error);
-            openAppDetails();
-        }
-    }
-
-    private void openAppDetails() {
-        try {
-            Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                    Uri.parse("package:" + getPackageName()));
-            startActivity(intent);
-        } catch (Exception error) {
-            Log.e(TAG, "无法打开应用详情设置", error);
-            Toast.makeText(this, "无法打开系统设置，请手动前往应用设置", Toast.LENGTH_LONG).show();
-        }
     }
 }

@@ -1,5 +1,6 @@
 package com.calendarboard.widget;
 
+import android.Manifest;
 import android.app.AlertDialog;
 import android.app.DatePickerDialog;
 import android.content.Intent;
@@ -32,6 +33,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.NotificationManagerCompat;
 import androidx.recyclerview.widget.ConcatAdapter;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.GridLayoutManager;
@@ -87,11 +89,13 @@ public final class MainActivity extends AppCompatActivity implements Repo.Listen
     private boolean rollingOver = false;
     private boolean pendingOpenReview = false;
     private boolean showingWeekTab = false;
+    private boolean permissionDialogPending = false;
 
     private LocalDate selectedDate = LocalDate.now();
     private YearMonth displayMonth = YearMonth.now();
 
     private RecyclerView screenRoot;
+    private SetupBanner setupBanner;
     private TextView statusLabel;
     private EditText emailInput;
     private EditText passwordInput;
@@ -143,9 +147,20 @@ public final class MainActivity extends AppCompatActivity implements Repo.Listen
         super.onResume();
         KnitTheme.load(this);
         if (!loggedIn) return;
+        ensureNotificationPermission();
+        if (setupBanner != null) setupBanner.refresh();
         renderFromSnapshot(Repo.get().snapshot());
         checkDayRollover();
         maybeSilentSync();
+    }
+
+    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions,
+                                                     int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == 1001) {
+            permissionDialogPending = false;
+            if (setupBanner != null) setupBanner.refresh();
+        }
     }
 
     @Override protected void onStop() {
@@ -316,7 +331,7 @@ public final class MainActivity extends AppCompatActivity implements Repo.Listen
                     if (!loggedIn) showHome();
                     else renderFromSnapshot(Repo.get().snapshot());
                     ReminderScheduler.rescheduleAll(this);
-                    requestNotificationPermissionIfNeeded();
+                    ensureNotificationPermission();
                 });
             } catch (Exception error) {
                 runOnUiThread(() -> {
@@ -328,16 +343,23 @@ public final class MainActivity extends AppCompatActivity implements Repo.Listen
         });
     }
 
-    private void requestNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT < 33) return;
-        if (checkSelfPermission("android.permission.POST_NOTIFICATIONS")
-                == PackageManager.PERMISSION_GRANTED) {
-            return;
+    private void ensureNotificationPermission() {
+        if (NotificationManagerCompat.from(this).areNotificationsEnabled()) return;
+        if (permissionDialogPending) return;
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                        != PackageManager.PERMISSION_GRANTED) {
+            SharedPreferences p = getSharedPreferences(Notifier.PREFS, MODE_PRIVATE);
+            int asked = p.getInt("post_notifications_ask_count", 0);
+            // 系统规定：被拒两次后 requestPermissions 不再弹窗，此后只能引导去设置
+            if (asked < 2) {
+                p.edit().putInt("post_notifications_ask_count", asked + 1).apply();
+                permissionDialogPending = true;
+                requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 1001);
+                return;
+            }
         }
-        SharedPreferences prefs = getSharedPreferences(Notifier.PREFS, MODE_PRIVATE);
-        if (prefs.getBoolean("post_notifications_requested", false)) return;
-        prefs.edit().putBoolean("post_notifications_requested", true).apply();
-        requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 1001);
+        // 走到这里说明系统不会再弹窗，或者用户在系统设置里手动关了：交给首页提示条
     }
 
     // ==================== Main screen ====================
@@ -352,6 +374,8 @@ public final class MainActivity extends AppCompatActivity implements Repo.Listen
             pendingOpenReview = false;
             screenRoot.post(this::openReview);
         }
+        ensureNotificationPermission();
+        if (setupBanner != null) setupBanner.refresh();
     }
 
     private RecyclerView buildHomeView() {
@@ -384,6 +408,8 @@ public final class MainActivity extends AppCompatActivity implements Repo.Listen
         header.setOrientation(LinearLayout.VERTICAL);
         header.setLayoutParams(new RecyclerView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        setupBanner = new SetupBanner(this);
+        header.addView(setupBanner);
         header.addView(buildTopHeader());
         header.addView(buildTabSwitcher());
         header.addView(buildMonthCard());
