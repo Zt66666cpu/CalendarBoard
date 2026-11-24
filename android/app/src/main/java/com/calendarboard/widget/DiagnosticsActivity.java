@@ -143,7 +143,7 @@ public final class DiagnosticsActivity extends AppCompatActivity {
         addTimeRow(card, ReminderScheduler.KEY_NEXT_SUMMARY, "晚间总结");
         addTimeRow(card, ReminderScheduler.KEY_NEXT_AHEAD, "提前提醒");
         addTimeRow(card, ReminderScheduler.KEY_NEXT_REVIEW, "每日回顾");
-        addTimeRow(card, ReminderScheduler.KEY_NEXT_ISLAND, "课程岛");
+        addTimeRow(card, ReminderScheduler.KEY_NEXT_ISLAND, "灵动岛");
         return card;
     }
 
@@ -162,7 +162,7 @@ public final class DiagnosticsActivity extends AppCompatActivity {
                 () -> SystemSettings.openChannelSettings(this, Notifier.CHANNEL_TODO));
         addPermissionRow(card, Notifier.CHANNEL_AHEAD, "提前提醒渠道",
                 () -> SystemSettings.openChannelSettings(this, Notifier.CHANNEL_AHEAD));
-        addPermissionRow(card, Notifier.CHANNEL_ISLAND, "课程岛渠道",
+        addPermissionRow(card, Notifier.CHANNEL_ISLAND, "灵动岛渠道",
                 () -> SystemSettings.openChannelSettings(this, Notifier.CHANNEL_ISLAND));
         addPermissionRow(card, Notifier.CHANNEL_SUMMARY, "晚间总结渠道",
                 () -> SystemSettings.openChannelSettings(this, Notifier.CHANNEL_SUMMARY));
@@ -257,7 +257,7 @@ public final class DiagnosticsActivity extends AppCompatActivity {
         titleRow.addView(islandIcon, iconLp);
 
         TextView name = new TextView(this);
-        name.setText("课程岛");
+        name.setText("灵动岛");
         name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         name.setTextColor(KnitTheme.INK_PRIMARY);
         name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
@@ -265,7 +265,7 @@ public final class DiagnosticsActivity extends AppCompatActivity {
         text.addView(titleRow);
 
         TextView detail = new TextView(this);
-        detail.setText("开启后，上课前与上课中在系统实时活动中显示进度");
+        detail.setText("开启后，课程、日程与带时间待办在开始前 30 分钟到结束期间显示在灵动岛");
         detail.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         detail.setTextColor(KnitTheme.INK_SECONDARY);
         detail.setPadding(0, dp(2), 0, 0);
@@ -282,10 +282,11 @@ public final class DiagnosticsActivity extends AppCompatActivity {
 
     private void onIslandToggled(boolean enabled) {
         Notifier.setIslandEnabled(this, enabled);
-        if (enabled) Notifier.updateCourseIsland(this, SessionStore.cache(this));
-        ReminderScheduler.rescheduleAll(this);
+        JSONObject cache = SessionStore.cache(this);
+        if (enabled) Notifier.updateIsland(this, cache);
+        ReminderScheduler.rescheduleIsland(this, cache);
         refreshValues();
-        Toast.makeText(this, enabled ? "课程岛已开启" : "课程岛已关闭", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, enabled ? "灵动岛已开启" : "灵动岛已关闭", Toast.LENGTH_SHORT).show();
     }
 
     private TextView sectionTitle(String text) {

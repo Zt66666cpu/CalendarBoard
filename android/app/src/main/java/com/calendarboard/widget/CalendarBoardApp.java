@@ -10,6 +10,7 @@ import androidx.core.content.ContextCompat;
 public final class CalendarBoardApp extends Application {
     @Override public void onCreate() {
         super.onCreate();
+        Repo.get().attachContext(this);
         IntentFilter filter = new IntentFilter();
         filter.addAction(Intent.ACTION_USER_PRESENT);
         filter.addAction(Intent.ACTION_DATE_CHANGED);

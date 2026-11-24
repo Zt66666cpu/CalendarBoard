@@ -23,7 +23,7 @@ public final class SyncService extends JobService {
                 JSONObject cache = SessionStore.cache(this);
                 NextClassWidget.renderAll(this);
                 CalendarWidget.renderAll(this);
-                Notifier.updateCourseIsland(this, cache);
+                Notifier.updateIsland(this, cache);
                 int hour = LocalTime.now().getHour();
                 if (hour >= 5 && hour <= 11) {
                     Notifier.maybeSendMorning(this, cache, syncSucceeded);

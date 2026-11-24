@@ -34,6 +34,10 @@ final class Repo {
 
     static Repo get() { return INSTANCE; }
 
+    void attachContext(Context context) {
+        if (context != null) appContext = applicationContext(context);
+    }
+
     void loadFromCache(Context context) {
         if (context == null) throw new IllegalArgumentException("Context 不能为空");
         Context app = applicationContext(context);
@@ -47,6 +51,7 @@ final class Repo {
         Context context = appContext;
         if (context != null) {
             publish(value, SessionStore.session(context) != null);
+            refreshIsland(context, value);
             return;
         }
         // CalendarApi only saves caches while authenticated, so a saved cache without a cached
@@ -58,7 +63,14 @@ final class Repo {
         if (context == null) throw new IllegalArgumentException("Context 不能为空");
         Context app = applicationContext(context);
         appContext = app;
-        publish(cache == null ? new JSONObject() : cache, SessionStore.session(app) != null);
+        JSONObject value = cache == null ? new JSONObject() : cache;
+        publish(value, SessionStore.session(app) != null);
+        refreshIsland(app, value);
+    }
+
+    private static void refreshIsland(Context context, JSONObject cache) {
+        Notifier.updateIsland(context, cache);
+        ReminderScheduler.rescheduleIsland(context, cache);
     }
 
     Snapshot snapshot() {

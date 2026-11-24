@@ -34,9 +34,11 @@ public final class ReminderReceiver extends BroadcastReceiver {
     static final String ACTION_REVIEW = "com.calendarboard.widget.ACTION_REVIEW";
     static final String ACTION_AHEAD = "com.calendarboard.widget.ACTION_AHEAD";
     static final String ACTION_ISLAND = "com.calendarboard.widget.ACTION_ISLAND";
+    static final String ACTION_ISLAND_DISMISSED = "com.calendarboard.widget.ACTION_ISLAND_DISMISSED";
 
     static final String EXTRA_ROW_ID = "row_id";
     static final String EXTRA_NOTIFICATION_ID = "notification_id";
+    static final String EXTRA_DISMISS_KEY = "dismiss_key";
 
     private static final ExecutorService WORK = Executors.newSingleThreadExecutor();
     private static final ExecutorService IO = Executors.newCachedThreadPool();
@@ -46,6 +48,7 @@ public final class ReminderReceiver extends BroadcastReceiver {
         if (app == null) app = context;
         String action = intent == null ? null : intent.getAction();
         String rowId = intent == null ? "" : intent.getStringExtra(EXTRA_ROW_ID);
+        String dismissKey = intent == null ? "" : intent.getStringExtra(EXTRA_DISMISS_KEY);
         int notificationId = intent == null
                 ? 0
                 : intent.getIntExtra(EXTRA_NOTIFICATION_ID, 0);
@@ -54,12 +57,17 @@ public final class ReminderReceiver extends BroadcastReceiver {
         final Context target = app;
         final String receivedAction = action;
         final String receivedRowId = rowId == null ? "" : rowId;
+        final String receivedDismissKey = dismissKey == null ? "" : dismissKey;
         final int receivedNotificationId = notificationId;
 
         WORK.execute(() -> {
             try {
                 if (ACTION_COMPLETE_TODO.equals(receivedAction)) {
                     completeTodo(target, receivedRowId, receivedNotificationId);
+                } else if (ACTION_ISLAND.equals(receivedAction)) {
+                    handleIslandTick(target);
+                } else if (ACTION_ISLAND_DISMISSED.equals(receivedAction)) {
+                    Notifier.markIslandDismissed(target, receivedDismissKey);
                 } else {
                     handleBroadcast(target, receivedAction, receivedRowId);
                 }
@@ -69,6 +77,13 @@ public final class ReminderReceiver extends BroadcastReceiver {
                 pendingResult.finish();
             }
         });
+    }
+
+    private static void handleIslandTick(Context context) {
+        JSONObject cache = SessionStore.cache(context);
+        Notifier.updateIsland(context, cache);
+        ReminderScheduler.rescheduleIsland(context, cache);
+        NextClassWidget.renderAll(context);
     }
 
     private static void completeTodo(Context context, String rowId, int notificationId) {
@@ -86,6 +101,8 @@ public final class ReminderReceiver extends BroadcastReceiver {
             return;
         }
         NotificationManagerCompat.from(context).cancel(notificationId);
+        JSONObject updated = SessionStore.cache(context);
+        Notifier.updateIsland(context, updated);
         CalendarWidget.renderAll(context);
         ReminderScheduler.rescheduleAll(context);
     }
@@ -141,14 +158,13 @@ public final class ReminderReceiver extends BroadcastReceiver {
             CalendarWidget.schedulePeriodic(context);
         }
 
-        boolean refreshIsland = ACTION_ISLAND.equals(action)
-                || Intent.ACTION_USER_PRESENT.equals(action)
+        boolean refreshIsland = Intent.ACTION_USER_PRESENT.equals(action)
                 || Intent.ACTION_TIME_CHANGED.equals(action)
                 || Intent.ACTION_TIMEZONE_CHANGED.equals(action)
                 || Intent.ACTION_DATE_CHANGED.equals(action);
         if (refreshIsland) {
             JSONObject latest = SessionStore.cache(context);
-            Notifier.updateCourseIsland(context, latest);
+            Notifier.updateIsland(context, latest);
             NextClassWidget.renderAll(context);
             CalendarWidget.renderAll(context);
         }

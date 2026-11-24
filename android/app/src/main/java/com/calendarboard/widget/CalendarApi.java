@@ -175,7 +175,6 @@ final class CalendarApi {
         Repo.get().onCacheSaved(data);
         ReminderScheduler.rescheduleAll(context);
         NextClassWidget.renderAll(context);
-        Notifier.updateCourseIsland(context, data);
         return data;
     }
 

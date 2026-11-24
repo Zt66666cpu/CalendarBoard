@@ -153,51 +153,42 @@ final class ReminderScheduler {
         }
         editor.putLong(KEY_NEXT_AHEAD, aheadMs);
 
-        long islandMs = 0L;
-        if (Notifier.isIslandEnabled(app)) {
-            islandMs = nextIslandMs(allItems, todayDate, nowMs);
-            if (islandMs > 0L) {
-                scheduleExactOrFallback(app, alarms, islandMs, REQ_ISLAND,
-                        ReminderReceiver.ACTION_ISLAND, null);
-            } else {
-                cancelAlarm(app, alarms, REQ_ISLAND, ReminderReceiver.ACTION_ISLAND);
-            }
-        } else {
-            cancelAlarm(app, alarms, REQ_ISLAND, ReminderReceiver.ACTION_ISLAND);
-        }
+        long islandMs = scheduleIslandInternal(app, alarms, allItems, now);
         editor.putLong(KEY_NEXT_ISLAND, islandMs);
 
         editor.apply();
     }
 
-    private static long nextIslandMs(List<JSONObject> allItems, LocalDate todayDate, long nowMs) {
-        long best = Long.MAX_VALUE;
-        String today = todayDate.toString();
-        for (JSONObject item : allItems) {
-            if (item == null || !"课程".equals(item.optString("type", ""))) continue;
-            if (!today.equals(item.optString("date", ""))) continue;
-            Integer start = Items.itemStart(item);
-            if (start == null) continue;
-            Integer end = Items.itemEnd(item);
-            List<Integer> points = new ArrayList<>();
-            for (int minute = start - 30; minute < start; minute += 5) {
-                points.add(minute);
-            }
-            points.add(start);
-            if (end != null) {
-                for (int minute = start + 10; minute < end; minute += 10) {
-                    points.add(minute);
-                }
-                points.add(end);
-            }
-            for (Integer point : points) {
-                if (point == null || point < 0 || point >= 1440) continue;
-                LocalDateTime at = todayDate.atTime(point / 60, point % 60);
-                long atMs = toMillis(at);
-                if (atMs > nowMs && atMs < best) best = atMs;
-            }
+    /** Fast-path reschedule for only the Live Updates island alarm (no other alarms touched). */
+    static synchronized void rescheduleIsland(Context context, JSONObject cache) {
+        if (context == null) return;
+        Context app = context.getApplicationContext();
+        if (app == null) app = context;
+        AlarmManager alarms = (AlarmManager) app.getSystemService(Context.ALARM_SERVICE);
+        if (alarms == null) return;
+
+        List<JSONObject> allItems = Notifier.allItems(cache);
+        long islandMs = scheduleIslandInternal(app, alarms, allItems, LocalDateTime.now());
+        app.getSharedPreferences(Notifier.PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putLong(KEY_NEXT_ISLAND, islandMs)
+                .apply();
+    }
+
+    private static long scheduleIslandInternal(Context app, AlarmManager alarms,
+                                               List<JSONObject> allItems, LocalDateTime now) {
+        if (!Notifier.isIslandEnabled(app)) {
+            cancelAlarm(app, alarms, REQ_ISLAND, ReminderReceiver.ACTION_ISLAND);
+            return 0L;
         }
-        return best == Long.MAX_VALUE ? 0L : best;
+        long islandMs = IslandPlanner.plan(allItems, now).nextChangeMs;
+        if (islandMs > 0L) {
+            scheduleExactOrFallback(app, alarms, islandMs, REQ_ISLAND,
+                    ReminderReceiver.ACTION_ISLAND, null);
+        } else {
+            cancelAlarm(app, alarms, REQ_ISLAND, ReminderReceiver.ACTION_ISLAND);
+        }
+        return islandMs;
     }
 
     private static String rowIdOf(JSONObject item) {

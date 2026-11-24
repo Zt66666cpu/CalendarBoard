@@ -15,14 +15,18 @@ import androidx.core.app.NotificationManagerCompat;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -45,6 +49,7 @@ final class Notifier {
     static final String KEY_SUMMARY_SENT_DATE = "summary_sent_date";
     static final String KEY_AHEAD_SENT_PREFIX = "ahead_sent_";
     static final String KEY_ISLAND_ENABLED = "island_enabled";
+    static final String KEY_ISLAND_DISMISSED_KEY = "island_dismissed_key";
 
     private static final int ID_MORNING = 1001;
     private static final int ID_TODO = 2001;
@@ -58,6 +63,10 @@ final class Notifier {
 
     private static final int REQ_OPEN_MAIN = 7101;
     private static final int REQ_OPEN_REVIEW = 7102;
+    private static final int REQ_ISLAND_DISMISSED = 7103;
+    private static final int REQ_ISLAND_COMPLETE = 7104;
+    private static final DateTimeFormatter HH_MM =
+            DateTimeFormatter.ofPattern("HH:mm", Locale.ROOT);
 
     private Notifier() { }
 
@@ -82,8 +91,8 @@ final class Notifier {
         manager.createNotificationChannel(ahead);
 
         NotificationChannel island = new NotificationChannel(
-                CHANNEL_ISLAND, "课程岛", NotificationManager.IMPORTANCE_LOW);
-        island.setDescription("课程开始、进行与下课的轻量提示");
+                CHANNEL_ISLAND, "灵动岛", NotificationManager.IMPORTANCE_LOW);
+        island.setDescription("事项开始前 30 分钟到结束的实时状态提示");
         island.setSound(null, null);
         island.enableVibration(false);
         manager.createNotificationChannel(island);
@@ -124,12 +133,17 @@ final class Notifier {
         NotificationManagerCompat.from(context).cancel(ID_ISLAND);
     }
 
+    static void markIslandDismissed(Context context, String dismissKey) {
+        if (context == null || dismissKey == null || dismissKey.isEmpty()) return;
+        prefs(context).edit().putString(KEY_ISLAND_DISMISSED_KEY, dismissKey).apply();
+        cancelCourseIsland(context);
+    }
+
     /**
-     * Keeps one Live Updates course island in sync with the cached timetable. Before a course it
-     * shows a system countdown; while a timed course runs it shows progress; afterwards it either
-     * moves to the next course inside the 30 minute lead window or disappears.
+     * Keeps one Live Updates island in sync with courses, schedules, and timed todos inside the
+     * 30-minute lead window through end time. Outside any window, cancels the notification.
      */
-    static void updateCourseIsland(Context context, JSONObject cache) {
+    static void updateIsland(Context context, JSONObject cache) {
         if (context == null) return;
         if (!isIslandEnabled(context)) {
             cancelCourseIsland(context);
@@ -137,83 +151,67 @@ final class Notifier {
         }
         ensureChannels(context);
 
-        String today = LocalDate.now().toString();
-        LocalTime nowTime = LocalTime.now();
-        int now = nowTime.getHour() * 60 + nowTime.getMinute();
-        List<JSONObject> courses = new ArrayList<>();
-        for (JSONObject item : allItems(cache)) {
-            if (item == null || !"课程".equals(item.optString("type", ""))) continue;
-            if (!today.equals(item.optString("date", ""))) continue;
-            if (Items.itemStart(item) == null) continue;
-            courses.add(item);
-        }
-        courses.sort(Items.BY_TIME);
-
-        JSONObject active = null;
-        for (JSONObject course : courses) {
-            Integer start = Items.itemStart(course);
-            Integer end = Items.itemEnd(course);
-            if (start != null && end != null && start <= now && now < end) {
-                active = course;
-                break;
-            }
-        }
-
-        if (active != null) {
-            postCourseIsland(context, active, true, now, ID_ISLAND, 0L);
+        LocalDateTime now = LocalDateTime.now();
+        IslandPlanner.Plan plan = IslandPlanner.plan(allItems(cache), now);
+        if (plan.kind == IslandPlanner.Kind.NONE || plan.item == null) {
+            cancelCourseIsland(context);
             return;
         }
 
-        JSONObject upcoming = null;
-        for (JSONObject course : courses) {
-            Integer start = Items.itemStart(course);
-            if (start != null && start > now) {
-                upcoming = course;
-                break;
-            }
+        String dismissKey = IslandPlanner.dismissKey(plan.item, now.toLocalDate());
+        if (!dismissKey.isEmpty()
+                && dismissKey.equals(prefs(context).getString(KEY_ISLAND_DISMISSED_KEY, ""))) {
+            return;
         }
-        Integer upcomingStart = Items.itemStart(upcoming);
-        if (upcoming != null && upcomingStart != null && upcomingStart - now <= 30) {
-            postCourseIsland(context, upcoming, false, now, ID_ISLAND, 0L);
-        } else {
-            cancelCourseIsland(context);
-        }
+
+        boolean readOnly = isReadOnly(cache);
+        postIsland(context, plan, ID_ISLAND, 0L, dismissKey, readOnly);
     }
 
-    static void postCourseIsland(Context context, JSONObject course,
-                                 boolean active, int now, int notificationId, long timeoutMs) {
-        Integer start = Items.itemStart(course);
-        if (start == null) {
-            if (notificationId == ID_ISLAND) cancelCourseIsland(context);
-            return;
-        }
-        Integer end = Items.itemEnd(course);
-        if (active && end == null) {
+    static void postIsland(Context context, IslandPlanner.Plan plan, int notificationId,
+                           long timeoutMs, String dismissKey, boolean readOnly) {
+        if (context == null || plan == null || plan.kind == IslandPlanner.Kind.NONE
+                || plan.item == null) {
             if (notificationId == ID_ISLAND) cancelCourseIsland(context);
             return;
         }
 
-        String title = course.optString("title", "课程");
-        String place = placeOf(course);
-        String heading = place.isEmpty() ? title : title + " · " + place;
-        String startText = Items.formatMinutes(start);
-        String body;
-        String shortText;
-        int percent = 0;
+        JSONObject item = plan.item;
+        String type = item.optString("type", "课程");
+        String title = item.optString("title", "未命名");
+        String place = placeOf(item);
+        boolean active = plan.kind == IslandPlanner.Kind.ACTIVE;
 
+        String heading;
+        String baseLine;
+        String startText = formatEpochTime(plan.startMs);
         if (active) {
-            int duration = Math.max(1, end - start);
-            int elapsed = Math.max(0, now - start);
-            percent = Math.max(0, Math.min(100, elapsed * 100 / duration));
-            body = startText + "–" + Items.formatMinutes(end);
-            shortText = "剩" + Math.max(0, end - now) + "分";
+            heading = place.isEmpty() ? title : title + " · " + place;
+            baseLine = startText + "–" + formatEpochTime(plan.targetMs);
         } else {
-            int remain = Math.max(1, start - now);
-            body = end == null
-                    ? startText + " 开始"
-                    : startText + "–" + Items.formatMinutes(end);
-            shortText = remain + "分";
+            if ("日程".equals(type)) heading = "日程 · " + title;
+            else if ("待办".equals(type)) heading = "待办 · " + title;
+            else heading = title;
+            baseLine = place.isEmpty() ? startText : startText + " · " + place;
         }
+
+        StringBuilder expanded = new StringBuilder(baseLine);
+        if (!plan.nextUp.isEmpty()) {
+            expanded.append("\n接下来：");
+            for (int i = 0; i < plan.nextUp.size(); i++) {
+                if (i > 0) expanded.append(" · ");
+                expanded.append(nextUpBrief(plan.nextUp.get(i)));
+            }
+        }
+
+        String publicText = active
+                ? "有正在进行的安排"
+                : ("马上".equals(plan.shortText) ? "马上有安排" : plan.shortText + "有安排");
+        NotificationCompat.Builder publicNote = new NotificationCompat.Builder(context, CHANNEL_ISLAND)
+                .setSmallIcon(R.drawable.ic_stat_calendar)
+                .setContentTitle("课表日历")
+                .setContentText(publicText)
+                .setPriority(NotificationCompat.PRIORITY_LOW);
 
         boolean promoted = canPostPromoted(context);
         NotificationCompat.Builder note = new NotificationCompat.Builder(context, CHANNEL_ISLAND)
@@ -221,36 +219,77 @@ final class Notifier {
                 .setAutoCancel(false)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
+                .setSilent(true)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
-                .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+                .setCategory(active
+                        ? NotificationCompat.CATEGORY_PROGRESS
+                        : NotificationCompat.CATEGORY_EVENT)
+                .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+                .setPublicVersion(publicNote.build())
                 .setContentTitle(heading)
-                .setContentText(body)
+                .setContentText(baseLine)
                 .setContentIntent(openIntent(context, false));
 
-        if (promoted) {
-            note.setRequestPromotedOngoing(true).setShortCriticalText(shortText);
-            if (active) {
-                NotificationCompat.ProgressStyle style = new NotificationCompat.ProgressStyle()
-                        .addProgressSegment(new NotificationCompat.ProgressStyle.Segment(100))
-                        .setProgress(percent)
-                        .setStyledByProgress(true);
-                note.setStyle(style);
-            }
-        } else if (active) {
-            note.setProgress(100, percent, false);
-        } else {
-            note.setProgress(100, 0, false);
+        if (notificationId == ID_ISLAND && dismissKey != null && !dismissKey.isEmpty()) {
+            Intent dismissed = new Intent(context, ReminderReceiver.class)
+                    .setAction(ReminderReceiver.ACTION_ISLAND_DISMISSED)
+                    .putExtra(ReminderReceiver.EXTRA_DISMISS_KEY, dismissKey);
+            PendingIntent deleteIntent = PendingIntent.getBroadcast(context, REQ_ISLAND_DISMISSED,
+                    dismissed, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            note.setDeleteIntent(deleteIntent);
         }
 
-        if (!active) {
-            long startMs = LocalDate.now()
-                    .atTime(start / 60, start % 60)
-                    .atZone(ZoneId.systemDefault())
-                    .toInstant()
-                    .toEpochMilli();
-            note.setWhen(startMs)
-                    .setUsesChronometer(true)
-                    .setChronometerCountDown(true);
+        if (promoted) {
+            note.setRequestPromotedOngoing(true).setShortCriticalText(plan.shortText);
+        }
+
+        if (active) {
+            int duration = Math.max(1, plan.durationMinutes);
+            int elapsed = Math.max(0, Math.min(duration, plan.elapsedMinutes));
+            int percent = Math.max(0, Math.min(100, elapsed * 100 / duration));
+            if (promoted) {
+                NotificationCompat.ProgressStyle style = new NotificationCompat.ProgressStyle()
+                        .setStyledByProgress(true);
+                if ("课程".equals(type) && duration == IslandPlanner.DEFAULT_COURSE_MIN) {
+                    style.addProgressSegment(new NotificationCompat.ProgressStyle.Segment(
+                                    IslandPlanner.LESSON_MIN))
+                            .addProgressSegment(new NotificationCompat.ProgressStyle.Segment(
+                                    IslandPlanner.BREAK_MIN)
+                                    .setColor(KnitTheme.BORDER_LINEN))
+                            .addProgressSegment(new NotificationCompat.ProgressStyle.Segment(
+                                    IslandPlanner.LESSON_MIN))
+                            .setProgress(elapsed);
+                } else {
+                    style.addProgressSegment(new NotificationCompat.ProgressStyle.Segment(100))
+                            .setProgress(percent);
+                }
+                note.setStyle(style);
+            } else {
+                note.setProgress(100, percent, false);
+                if (!plan.nextUp.isEmpty()) {
+                    note.setStyle(new NotificationCompat.BigTextStyle()
+                            .setBigContentTitle(heading)
+                            .bigText(expanded.toString()));
+                }
+            }
+        } else {
+            note.setStyle(new NotificationCompat.BigTextStyle()
+                    .setBigContentTitle(heading)
+                    .bigText(expanded.toString()));
+        }
+
+        if ("待办".equals(type) && !readOnly && notificationId == ID_ISLAND) {
+            String rowId = rowIdOf(item);
+            if (!rowId.isEmpty()) {
+                Intent complete = new Intent(context, ReminderReceiver.class)
+                        .setAction(ReminderReceiver.ACTION_COMPLETE_TODO)
+                        .putExtra(ReminderReceiver.EXTRA_ROW_ID, rowId)
+                        .putExtra(ReminderReceiver.EXTRA_NOTIFICATION_ID, notificationId);
+                PendingIntent completeIntent = PendingIntent.getBroadcast(context,
+                        REQ_ISLAND_COMPLETE, complete,
+                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                note.addAction(R.drawable.ic_check, "完成", completeIntent);
+            }
         }
 
         if (timeoutMs > 0L) {
@@ -258,6 +297,26 @@ final class Notifier {
         }
 
         deliver(context, notificationId, note);
+    }
+
+    private static String formatEpochTime(long epochMs) {
+        return Instant.ofEpochMilli(epochMs)
+                .atZone(ZoneId.systemDefault())
+                .toLocalTime()
+                .format(HH_MM);
+    }
+
+    private static String nextUpBrief(JSONObject item) {
+        if (item == null) return "";
+        Integer start = Items.itemStart(item);
+        String title = item.optString("title", "未命名");
+        return start == null ? title : Items.formatMinutes(start) + " " + title;
+    }
+
+    private static boolean isReadOnly(JSONObject cache) {
+        JSONObject meta = cache == null ? null : cache.optJSONObject("meta");
+        return meta != null
+                && meta.optInt("schemaVersion", Items.SUPPORTED_SCHEMA) > Items.SUPPORTED_SCHEMA;
     }
 
     static List<JSONObject> allItems(JSONObject cache) {
@@ -612,14 +671,22 @@ final class Notifier {
                 .setContentTitle("测试 · 提前提醒")
                 .setContentText("事项开始前 30 分钟会提醒你"));
 
-        LocalTime nowTime = LocalTime.now();
-        int nowMinutes = Math.min(nowTime.getHour() * 60 + nowTime.getMinute(), 23 * 60);
+        LocalDateTime now = LocalDateTime.now().withSecond(0).withNano(0);
+        LocalDateTime fakeStart = now.plusMinutes(10);
+        LocalDateTime fakeEnd = now.plusMinutes(55);
         JSONObject fakeCourse = new JSONObject();
         try {
+            fakeCourse.put("_row_id", "test_island_course");
+            fakeCourse.put("type", "课程");
+            fakeCourse.put("date", fakeStart.toLocalDate().toString());
             fakeCourse.put("title", "测试课程");
-            fakeCourse.put("startTime", Items.formatMinutes(nowMinutes + 10));
-            fakeCourse.put("endTime", Items.formatMinutes(nowMinutes + 55));
+            fakeCourse.put("startTime", fakeStart.toLocalTime().format(HH_MM));
+            if (fakeEnd.toLocalDate().equals(fakeStart.toLocalDate())) {
+                fakeCourse.put("endTime", fakeEnd.toLocalTime().format(HH_MM));
+            }
         } catch (Exception ignored) { }
-        postCourseIsland(context, fakeCourse, false, nowMinutes, ID_TEST_ISLAND, 60_000L);
+        IslandPlanner.Plan testPlan = IslandPlanner.plan(
+                Collections.singletonList(fakeCourse), now);
+        postIsland(context, testPlan, ID_TEST_ISLAND, 60_000L, null, true);
     }
 }
