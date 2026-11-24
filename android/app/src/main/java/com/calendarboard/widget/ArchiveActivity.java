@@ -75,12 +75,11 @@ public final class ArchiveActivity extends AppCompatActivity implements Repo.Lis
         topBar.setOrientation(LinearLayout.HORIZONTAL);
         topBar.setGravity(Gravity.CENTER_VERTICAL);
 
-        TextView back = new TextView(this);
-        back.setText("‹");
-        back.setTextSize(TypedValue.COMPLEX_UNIT_SP, 24);
-        back.setTypeface(Typeface.DEFAULT_BOLD);
-        back.setTextColor(KnitTheme.INK_PRIMARY);
-        back.setGravity(Gravity.CENTER);
+        android.widget.ImageView back = new android.widget.ImageView(this);
+        back.setImageResource(R.drawable.ic_chevron_left);
+        back.setImageTintList(android.content.res.ColorStateList.valueOf(KnitTheme.INK_PRIMARY));
+        back.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+        back.setPadding(dp(8), dp(8), dp(8), dp(8));
         back.setContentDescription("返回");
         back.setBackground(KnitTheme.circle(this, KnitTheme.SURFACE_SAND,
                 KnitTheme.BORDER_LINEN, 1));

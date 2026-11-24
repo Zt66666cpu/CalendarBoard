@@ -246,12 +246,26 @@ public final class DiagnosticsActivity extends AppCompatActivity {
 
         LinearLayout text = new LinearLayout(this);
         text.setOrientation(LinearLayout.VERTICAL);
+
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+
+        android.widget.ImageView islandIcon = new android.widget.ImageView(this);
+        islandIcon.setImageResource(R.drawable.ic_island);
+        islandIcon.setImageTintList(android.content.res.ColorStateList.valueOf(KnitTheme.INK_PRIMARY));
+        islandIcon.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+        LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(dp(18), dp(18));
+        iconLp.rightMargin = dp(6);
+        titleRow.addView(islandIcon, iconLp);
+
         TextView name = new TextView(this);
         name.setText("课程岛");
         name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         name.setTextColor(KnitTheme.INK_PRIMARY);
         name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        text.addView(name);
+        titleRow.addView(name);
+        text.addView(titleRow);
 
         TextView detail = new TextView(this);
         detail.setText("开启后，上课前与上课中在系统实时活动中显示进度");

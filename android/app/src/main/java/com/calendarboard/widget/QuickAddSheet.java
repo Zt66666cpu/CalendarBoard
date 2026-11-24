@@ -46,8 +46,8 @@ public final class QuickAddSheet extends BottomSheetDialogFragment {
     private String endTimeStr = "";
     private TextView startPill;
     private TextView endPill;
-    private TextView startClear;
-    private TextView endClear;
+    private android.widget.ImageView startClear;
+    private android.widget.ImageView endClear;
     private TextView headingView;
     private TextView dateBtn;
     private EditText titleInput;
@@ -143,11 +143,11 @@ public final class QuickAddSheet extends BottomSheetDialogFragment {
         header.addView(headingView, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
-        TextView close = new TextView(context);
-        close.setText("✕");
-        close.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        close.setTextColor(KnitTheme.INK_SECONDARY);
-        close.setGravity(Gravity.CENTER);
+        android.widget.ImageView close = new android.widget.ImageView(context);
+        close.setImageResource(R.drawable.ic_close);
+        close.setImageTintList(android.content.res.ColorStateList.valueOf(KnitTheme.INK_SECONDARY));
+        close.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+        close.setPadding(dp(7), dp(7), dp(7), dp(7));
         close.setContentDescription("关闭");
         close.setBackground(KnitTheme.circle(context, KnitTheme.SURFACE_SAND,
                 KnitTheme.BORDER_LINEN, 1));
@@ -307,12 +307,12 @@ public final class QuickAddSheet extends BottomSheetDialogFragment {
         line.addView(pill, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
-        TextView clear = new TextView(context);
-        clear.setText("✕");
-        clear.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        clear.setGravity(Gravity.CENTER);
+        android.widget.ImageView clear = new android.widget.ImageView(context);
+        clear.setImageResource(R.drawable.ic_close);
+        clear.setImageTintList(android.content.res.ColorStateList.valueOf(KnitTheme.INK_SECONDARY));
+        clear.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+        clear.setPadding(dp(8), dp(8), dp(8), dp(8));
         clear.setContentDescription("清除" + label);
-        clear.setTextColor(KnitTheme.INK_SECONDARY);
         clear.setBackground(KnitTheme.circle(context, KnitTheme.SURFACE_SAND,
                 KnitTheme.BORDER_LINEN, 1));
         clear.setOnClickListener(v -> {

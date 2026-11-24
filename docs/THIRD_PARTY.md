@@ -65,6 +65,12 @@
 - **依赖形态**：仅提交静态 VectorDrawable XML，不引入图标字体、Gradle 依赖或运行时资源，因此不影响 APK 体积与启动。
 - **许可保留**：Material Symbols 的 Apache-2.0 许可与上游一致；如后续替换图标，需继续保留同许可证或在本表补充新来源。
 
+## Lucide（Android 矢量图标）
+
+- **出处**：Lucide 开源图标集 <https://github.com/lucide-icons/lucide>，许可证 `ISC`（完整许可证文本见 `docs/licenses/lucide.txt`）。
+- **用途**：Android 端 `res/drawable/` 内的应用内小图标（`ic_add`、`ic_check`、`ic_chevron_left`、`ic_chevron_right`、`ic_close`、`ic_more`、`ic_refresh`、`ic_course`、`ic_todo`、`ic_schedule`、`ic_review`、`ic_archive`、`ic_bell`）。
+- **本地改造**：线宽改为 1.75，转为 Android VectorDrawable 静态 XML，不引入运行时依赖。
+
 ## 登记完整性核对（v3.0）
 
 | 类别 | 依赖 | 状态 |

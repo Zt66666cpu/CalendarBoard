@@ -482,6 +482,8 @@ public final class MainActivity extends AppCompatActivity implements Repo.Listen
     private View iconAction(int drawableId, String description, View.OnClickListener listener) {
         ImageView button = new ImageView(this);
         button.setImageResource(drawableId);
+        button.setImageTintList(ColorStateList.valueOf(KnitTheme.INK_PRIMARY));
+        button.setScaleType(ImageView.ScaleType.FIT_CENTER);
         button.setContentDescription(description);
         button.setPadding(dp(8), dp(8), dp(8), dp(8));
         button.setBackground(KnitTheme.circle(this, KnitTheme.SURFACE_OAT,
@@ -540,11 +542,11 @@ public final class MainActivity extends AppCompatActivity implements Repo.Listen
         nav.setGravity(Gravity.CENTER_VERTICAL);
         nav.setPadding(dp(4), 0, dp(4), dp(10));
 
-        TextView previous = navArrow("‹", v -> {
+        ImageView previous = navArrow(R.drawable.ic_chevron_left, "上个月", v -> {
             if (monthPager != null) monthPager.setCurrentItem(
                     Math.max(0, monthPager.getCurrentItem() - 1), true);
         });
-        TextView next = navArrow("›", v -> {
+        ImageView next = navArrow(R.drawable.ic_chevron_right, "下个月", v -> {
             if (monthPager != null) monthPager.setCurrentItem(
                     Math.min(TOTAL_MONTH_PAGES - 1, monthPager.getCurrentItem() + 1), true);
         });
@@ -593,13 +595,13 @@ public final class MainActivity extends AppCompatActivity implements Repo.Listen
         return card;
     }
 
-    private TextView navArrow(String symbol, View.OnClickListener listener) {
-        TextView arrow = new TextView(this);
-        arrow.setText(symbol);
-        arrow.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
-        arrow.setTypeface(Typeface.DEFAULT_BOLD);
-        arrow.setTextColor(KnitTheme.INK_PRIMARY);
-        arrow.setGravity(Gravity.CENTER);
+    private ImageView navArrow(int drawableId, String description, View.OnClickListener listener) {
+        ImageView arrow = new ImageView(this);
+        arrow.setImageResource(drawableId);
+        arrow.setImageTintList(ColorStateList.valueOf(KnitTheme.INK_PRIMARY));
+        arrow.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        arrow.setContentDescription(description);
+        arrow.setPadding(dp(6), dp(6), dp(6), dp(6));
         arrow.setBackground(KnitTheme.circle(this, KnitTheme.SURFACE_SAND,
                 KnitTheme.BORDER_LINEN, 1));
         arrow.setOnClickListener(listener);
@@ -1189,19 +1191,28 @@ public final class MainActivity extends AppCompatActivity implements Repo.Listen
         rootLp.topMargin = dp(6);
         root.setLayoutParams(rootLp);
 
-        TextView check = new TextView(this);
-        check.setGravity(Gravity.CENTER);
-        check.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        check.setTypeface(Typeface.DEFAULT_BOLD);
-        check.setTextColor(KnitTheme.SURFACE_OAT);
+        FrameLayout check = new FrameLayout(this);
+        ImageView checkIcon = new ImageView(this);
+        checkIcon.setImageResource(R.drawable.ic_check);
+        checkIcon.setImageTintList(ColorStateList.valueOf(KnitTheme.SURFACE_OAT));
+        checkIcon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        FrameLayout.LayoutParams checkIconLp = new FrameLayout.LayoutParams(
+                dp(14), dp(14), Gravity.CENTER);
+        check.addView(checkIcon, checkIconLp);
         LinearLayout.LayoutParams checkLp = new LinearLayout.LayoutParams(dp(22), dp(22));
         checkLp.rightMargin = dp(10);
         root.addView(check, checkLp);
 
         View accent = new View(this);
         LinearLayout.LayoutParams accentLp = new LinearLayout.LayoutParams(dp(4), dp(26));
-        accentLp.rightMargin = dp(10);
+        accentLp.rightMargin = dp(8);
         root.addView(accent, accentLp);
+
+        ImageView typeIcon = new ImageView(this);
+        typeIcon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        LinearLayout.LayoutParams typeIconLp = new LinearLayout.LayoutParams(dp(16), dp(16));
+        typeIconLp.rightMargin = dp(8);
+        root.addView(typeIcon, typeIconLp);
 
         LinearLayout textColumn = new LinearLayout(this);
         textColumn.setOrientation(LinearLayout.VERTICAL);
@@ -1251,16 +1262,20 @@ public final class MainActivity extends AppCompatActivity implements Repo.Listen
         actions.addView(postpone);
         actions.addView(drop);
 
-        TextView chevron = new TextView(this);
-        chevron.setText("›");
-        chevron.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
-        chevron.setTextColor(KnitTheme.INK_MUTED);
-        chevron.setPadding(dp(6), 0, dp(2), 0);
-        root.addView(chevron);
+        ImageView chevron = new ImageView(this);
+        chevron.setImageResource(R.drawable.ic_chevron_right);
+        chevron.setImageTintList(ColorStateList.valueOf(KnitTheme.INK_MUTED));
+        chevron.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        LinearLayout.LayoutParams chevronLp = new LinearLayout.LayoutParams(dp(16), dp(16));
+        chevronLp.leftMargin = dp(6);
+        chevronLp.rightMargin = dp(2);
+        root.addView(chevron, chevronLp);
 
         ItemHolder holder = new ItemHolder(root);
         holder.check = check;
+        holder.checkIcon = checkIcon;
         holder.accent = accent;
+        holder.typeIcon = typeIcon;
         holder.title = title;
         holder.meta = meta;
         holder.progress = progress;
@@ -1326,11 +1341,25 @@ public final class MainActivity extends AppCompatActivity implements Repo.Listen
                 row.current ? yarn : Color.TRANSPARENT, row.current ? 1.5f : 0, 16));
         holder.root.setOnClickListener(v -> openQuickAdd(itemDate(item), item));
 
-        holder.check.setVisibility(isTodo && !row.pendingRow ? View.VISIBLE : View.GONE);
-        holder.accent.setVisibility(isTodo && !row.pendingRow ? View.GONE : View.VISIBLE);
+        boolean showCheck = isTodo && !row.pendingRow;
+        holder.check.setVisibility(showCheck ? View.VISIBLE : View.GONE);
+        holder.accent.setVisibility(showCheck ? View.GONE : View.VISIBLE);
         holder.accent.setBackground(KnitTheme.roundedRect(this, yarn, Color.TRANSPARENT, 0, 999));
 
-        holder.check.setText(done ? "✓" : "");
+        if (showCheck) {
+            holder.typeIcon.setVisibility(View.GONE);
+        } else {
+            int iconRes;
+            if ("课程".equals(type)) iconRes = R.drawable.ic_course;
+            else if ("日程".equals(type)) iconRes = R.drawable.ic_schedule;
+            else iconRes = R.drawable.ic_todo;
+            holder.typeIcon.setImageResource(iconRes);
+            holder.typeIcon.setImageTintList(ColorStateList.valueOf(yarn));
+            holder.typeIcon.setVisibility(View.VISIBLE);
+        }
+
+        holder.checkIcon.setVisibility(done ? View.VISIBLE : View.GONE);
+        holder.checkIcon.setImageTintList(ColorStateList.valueOf(KnitTheme.SURFACE_OAT));
         holder.check.setBackground(KnitTheme.circle(this,
                 done ? yarn : KnitTheme.SURFACE_OAT, yarn, 1.5f));
         holder.check.setEnabled(!Repo.get().snapshot().readOnly);
@@ -1410,8 +1439,10 @@ public final class MainActivity extends AppCompatActivity implements Repo.Listen
 
     private static final class ItemHolder extends RecyclerView.ViewHolder {
         final LinearLayout root;
-        TextView check;
+        FrameLayout check;
+        ImageView checkIcon;
         View accent;
+        ImageView typeIcon;
         TextView title;
         TextView meta;
         ProgressBar progress;
@@ -1420,7 +1451,7 @@ public final class MainActivity extends AppCompatActivity implements Repo.Listen
         TextView complete;
         TextView postpone;
         TextView drop;
-        TextView chevron;
+        ImageView chevron;
 
         ItemHolder(LinearLayout root) {
             super(root);
@@ -1552,12 +1583,15 @@ public final class MainActivity extends AppCompatActivity implements Repo.Listen
 
     private void showMoreMenu(View anchor) {
         PopupMenu menu = new PopupMenu(this, anchor);
-        menu.getMenu().add(0, 1, 0, "今日回顾");
-        menu.getMenu().add(0, 2, 1, "归档");
+        if (Build.VERSION.SDK_INT >= 29) {
+            menu.setForceShowIcon(true);
+        }
+        menu.getMenu().add(0, 1, 0, "今日回顾").setIcon(R.drawable.ic_review);
+        menu.getMenu().add(0, 2, 1, "归档").setIcon(R.drawable.ic_archive);
         menu.getMenu().add(0, 3, 2, "学期设置");
         menu.getMenu().add(0, 4, 3, "打开网页版日历");
         menu.getMenu().add(0, 5, 4, "刷新桌面小组件");
-        menu.getMenu().add(0, 7, 5, "提醒与自检");
+        menu.getMenu().add(0, 7, 5, "提醒与自检").setIcon(R.drawable.ic_bell);
         menu.getMenu().add(0, 6, 6, "退出登录");
         menu.setOnMenuItemClickListener(item -> {
             if (item.getItemId() == 1) {
