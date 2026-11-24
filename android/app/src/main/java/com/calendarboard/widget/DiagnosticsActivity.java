@@ -205,6 +205,13 @@ public final class DiagnosticsActivity extends AppCompatActivity {
         });
         actions.addView(test);
 
+        TextView testHint = new TextView(this);
+        testHint.setText("课程岛测试会显示 1 分钟，Android 16 且允许上岛时应出现在超级岛。");
+        testHint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        testHint.setTextColor(KnitTheme.INK_MUTED);
+        testHint.setPadding(dp(4), dp(6), dp(4), dp(2));
+        actions.addView(testHint);
+
         TextView reschedule = button("立即重排所有提醒", false);
         LinearLayout.LayoutParams rescheduleLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);

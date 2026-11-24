@@ -160,7 +160,7 @@ final class Notifier {
         }
 
         if (active != null) {
-            postCourseIsland(context, active, true, now);
+            postCourseIsland(context, active, true, now, ID_ISLAND, 0L);
             return;
         }
 
@@ -174,22 +174,22 @@ final class Notifier {
         }
         Integer upcomingStart = Items.itemStart(upcoming);
         if (upcoming != null && upcomingStart != null && upcomingStart - now <= 30) {
-            postCourseIsland(context, upcoming, false, now);
+            postCourseIsland(context, upcoming, false, now, ID_ISLAND, 0L);
         } else {
             cancelCourseIsland(context);
         }
     }
 
-    private static void postCourseIsland(Context context, JSONObject course,
-                                         boolean active, int now) {
+    static void postCourseIsland(Context context, JSONObject course,
+                                 boolean active, int now, int notificationId, long timeoutMs) {
         Integer start = Items.itemStart(course);
         if (start == null) {
-            cancelCourseIsland(context);
+            if (notificationId == ID_ISLAND) cancelCourseIsland(context);
             return;
         }
         Integer end = Items.itemEnd(course);
         if (active && end == null) {
-            cancelCourseIsland(context);
+            if (notificationId == ID_ISLAND) cancelCourseIsland(context);
             return;
         }
 
@@ -253,7 +253,11 @@ final class Notifier {
                     .setChronometerCountDown(true);
         }
 
-        deliver(context, ID_ISLAND, note);
+        if (timeoutMs > 0L) {
+            note.setTimeoutAfter(timeoutMs);
+        }
+
+        deliver(context, notificationId, note);
     }
 
     static List<JSONObject> allItems(JSONObject cache) {
@@ -607,8 +611,15 @@ final class Notifier {
         deliver(context, ID_TEST_AHEAD, builder(context, CHANNEL_AHEAD)
                 .setContentTitle("测试 · 提前提醒")
                 .setContentText("事项开始前 30 分钟会提醒你"));
-        deliver(context, ID_TEST_ISLAND, builder(context, CHANNEL_ISLAND)
-                .setContentTitle("测试 · 课程岛")
-                .setContentText("课程上课、进行与下课时的轻量提示"));
+
+        LocalTime nowTime = LocalTime.now();
+        int nowMinutes = Math.min(nowTime.getHour() * 60 + nowTime.getMinute(), 23 * 60);
+        JSONObject fakeCourse = new JSONObject();
+        try {
+            fakeCourse.put("title", "测试课程");
+            fakeCourse.put("startTime", Items.formatMinutes(nowMinutes + 10));
+            fakeCourse.put("endTime", Items.formatMinutes(nowMinutes + 55));
+        } catch (Exception ignored) { }
+        postCourseIsland(context, fakeCourse, false, nowMinutes, ID_TEST_ISLAND, 60_000L);
     }
 }
