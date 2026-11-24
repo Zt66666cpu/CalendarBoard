@@ -143,6 +143,7 @@ public final class DiagnosticsActivity extends AppCompatActivity {
         addTimeRow(card, ReminderScheduler.KEY_NEXT_MORNING, "早安兜底");
         addTimeRow(card, ReminderScheduler.KEY_NEXT_NOON, "12:00 待办");
         addTimeRow(card, ReminderScheduler.KEY_NEXT_EVENING, "18:00 待办");
+        addTimeRow(card, ReminderScheduler.KEY_NEXT_SUMMARY, "晚间总结");
         addTimeRow(card, ReminderScheduler.KEY_NEXT_AHEAD, "提前提醒");
         addTimeRow(card, ReminderScheduler.KEY_NEXT_REVIEW, "每日回顾");
         addTimeRow(card, ReminderScheduler.KEY_NEXT_ISLAND, "课程岛");
@@ -166,6 +167,8 @@ public final class DiagnosticsActivity extends AppCompatActivity {
                 () -> SystemSettings.openChannelSettings(this, Notifier.CHANNEL_AHEAD));
         addPermissionRow(card, Notifier.CHANNEL_ISLAND, "课程岛渠道",
                 () -> SystemSettings.openChannelSettings(this, Notifier.CHANNEL_ISLAND));
+        addPermissionRow(card, Notifier.CHANNEL_SUMMARY, "晚间总结渠道",
+                () -> SystemSettings.openChannelSettings(this, Notifier.CHANNEL_SUMMARY));
         addPermissionRow(card, "exact", "精确闹钟",
                 () -> SystemSettings.openExactAlarmSettings(this));
         addPermissionRow(card, "battery", "忽略电池优化",
@@ -429,7 +432,7 @@ public final class DiagnosticsActivity extends AppCompatActivity {
         }
 
         String[] channels = {Notifier.CHANNEL_MORNING, Notifier.CHANNEL_TODO,
-                Notifier.CHANNEL_AHEAD, Notifier.CHANNEL_ISLAND};
+                Notifier.CHANNEL_AHEAD, Notifier.CHANNEL_ISLAND, Notifier.CHANNEL_SUMMARY};
         for (String channelId : channels) {
             TextView value = permissionValues.get(channelId);
             if (value == null) continue;

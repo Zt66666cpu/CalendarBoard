@@ -26,9 +26,12 @@ import java.util.Set;
 final class ReminderScheduler {
     private static final String TAG = "CalendarBoardScheduler";
 
+    static final int EVENING_SUMMARY_MINUTES = 21 * 60 + 30;
+
     static final String KEY_NEXT_MORNING = "next_morning_ms";
     static final String KEY_NEXT_NOON = "next_noon_ms";
     static final String KEY_NEXT_EVENING = "next_evening_ms";
+    static final String KEY_NEXT_SUMMARY = "next_summary_ms";
     static final String KEY_NEXT_AHEAD = "next_ahead_ms";
     static final String KEY_NEXT_REVIEW = "next_review_ms";
     static final String KEY_NEXT_ISLAND = "next_island_ms";
@@ -39,6 +42,7 @@ final class ReminderScheduler {
     private static final int REQ_AHEAD = 4104;
     private static final int REQ_REVIEW = 4105;
     private static final int REQ_ISLAND = 4106;
+    private static final int REQ_SUMMARY = 4107;
 
     private ReminderScheduler() { }
 
@@ -87,6 +91,17 @@ final class ReminderScheduler {
         scheduleExactOrFallback(app, alarms, eveningMs, REQ_EVENING,
                 ReminderReceiver.ACTION_EVENING, null);
         editor.putLong(KEY_NEXT_EVENING, eveningMs);
+
+        LocalDateTime summaryAt = todayDate.atTime(
+                EVENING_SUMMARY_MINUTES / 60, EVENING_SUMMARY_MINUTES % 60);
+        if (!now.isBefore(summaryAt)
+                || today.equals(prefs.getString(Notifier.KEY_SUMMARY_SENT_DATE, ""))) {
+            summaryAt = summaryAt.plusDays(1);
+        }
+        long summaryMs = toMillis(summaryAt);
+        scheduleExactOrFallback(app, alarms, summaryMs, REQ_SUMMARY,
+                ReminderReceiver.ACTION_SUMMARY, null);
+        editor.putLong(KEY_NEXT_SUMMARY, summaryMs);
 
         int trigger = Items.reviewTriggerMinutes(allItems, today);
         int nowMinutes = now.getHour() * 60 + now.getMinute();

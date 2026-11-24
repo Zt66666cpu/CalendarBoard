@@ -30,6 +30,7 @@ public final class ReminderReceiver extends BroadcastReceiver {
     static final String ACTION_MORNING = "com.calendarboard.widget.ACTION_MORNING";
     static final String ACTION_NOON = "com.calendarboard.widget.ACTION_NOON";
     static final String ACTION_EVENING = "com.calendarboard.widget.ACTION_EVENING";
+    static final String ACTION_SUMMARY = "com.calendarboard.widget.ACTION_SUMMARY";
     static final String ACTION_REVIEW = "com.calendarboard.widget.ACTION_REVIEW";
     static final String ACTION_AHEAD = "com.calendarboard.widget.ACTION_AHEAD";
     static final String ACTION_ISLAND = "com.calendarboard.widget.ACTION_ISLAND";
@@ -120,6 +121,8 @@ public final class ReminderReceiver extends BroadcastReceiver {
             Notifier.maybeSendTodoReminder(context, cache, false);
         } else if (ACTION_EVENING.equals(action)) {
             Notifier.maybeSendTodoReminder(context, cache, true);
+        } else if (ACTION_SUMMARY.equals(action)) {
+            Notifier.maybeSendEveningSummary(context, cache);
         } else if (ACTION_REVIEW.equals(action)) {
             Notifier.maybeSendReviewPrompt(context, cache);
         } else if (ACTION_AHEAD.equals(action)) {

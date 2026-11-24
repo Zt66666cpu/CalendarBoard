@@ -17,6 +17,7 @@ import org.json.JSONObject;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -37,9 +38,11 @@ final class Notifier {
     static final String CHANNEL_TODO = "todo";
     static final String CHANNEL_AHEAD = "ahead";
     static final String CHANNEL_ISLAND = "island";
+    static final String CHANNEL_SUMMARY = "summary";
 
     static final String KEY_MORNING_SENT_DATE = "morning_sent_date";
     static final String KEY_LAST_REVIEW_PROMPT_DATE = "last_review_prompt_date";
+    static final String KEY_SUMMARY_SENT_DATE = "summary_sent_date";
     static final String KEY_AHEAD_SENT_PREFIX = "ahead_sent_";
     static final String KEY_ISLAND_ENABLED = "island_enabled";
 
@@ -47,6 +50,7 @@ final class Notifier {
     private static final int ID_TODO = 2001;
     private static final int ID_REVIEW = 3001;
     private static final int ID_ISLAND = 4001;
+    private static final int ID_SUMMARY = 5001;
     private static final int ID_TEST_MORNING = 9001;
     private static final int ID_TEST_TODO = 9002;
     private static final int ID_TEST_AHEAD = 9003;
@@ -83,6 +87,11 @@ final class Notifier {
         island.setSound(null, null);
         island.enableVibration(false);
         manager.createNotificationChannel(island);
+
+        NotificationChannel summary = new NotificationChannel(
+                CHANNEL_SUMMARY, "晚间总结", NotificationManager.IMPORTANCE_DEFAULT);
+        summary.setDescription("每晚汇总今日完成、未完成待办与明日课程");
+        manager.createNotificationChannel(summary);
     }
 
     private static SharedPreferences prefs(Context context) {
@@ -456,6 +465,85 @@ final class Notifier {
                 .setContentIntent(openIntent(context, true));
         deliver(context, ID_REVIEW, note);
         prefs.edit().putString(KEY_LAST_REVIEW_PROMPT_DATE, today).apply();
+    }
+
+    /** Daily evening summary posted at 21:30 by default, at most once per calendar day. */
+    static void maybeSendEveningSummary(Context context, JSONObject cache) {
+        if (context == null) return;
+        ensureChannels(context);
+        LocalDate todayDate = LocalDate.now();
+        String today = todayDate.toString();
+        String tomorrow = todayDate.plusDays(1).toString();
+        SharedPreferences prefs = prefs(context);
+        if (today.equals(prefs.getString(KEY_SUMMARY_SENT_DATE, ""))) return;
+
+        List<JSONObject> allItems = allItems(cache);
+        int completedCount = 0;
+        int pendingCount = 0;
+        List<JSONObject> tomorrowCourses = new ArrayList<>();
+
+        for (JSONObject item : allItems) {
+            if (item == null) continue;
+            String type = item.optString("type", "");
+            if ("待办".equals(type)) {
+                if (Items.isDone(item)) {
+                    String completedAt = item.optString("completedAt", "").trim();
+                    if (!completedAt.isEmpty()) {
+                        try {
+                            LocalDate doneDate = OffsetDateTime.parse(completedAt)
+                                    .atZoneSameInstant(ZoneId.systemDefault())
+                                    .toLocalDate();
+                            if (todayDate.equals(doneDate)) completedCount++;
+                        } catch (Exception error) {
+                            Log.w(TAG, "无法解析 completedAt：" + completedAt, error);
+                        }
+                    }
+                } else if (!Items.isDropped(item)) {
+                    String date = item.optString("date", "");
+                    if (!date.isEmpty() && date.compareTo(today) <= 0) {
+                        pendingCount++;
+                    }
+                }
+            } else if ("课程".equals(type) && tomorrow.equals(item.optString("date", ""))) {
+                tomorrowCourses.add(item);
+            }
+        }
+
+        int courseCount = tomorrowCourses.size();
+        if (completedCount == 0 && pendingCount == 0 && courseCount == 0) {
+            return;
+        }
+        tomorrowCourses.sort(Items.BY_TIME);
+
+        String title = completedCount > 0 ? "今天完成 " + completedCount + " 项" : "今天的总结";
+        String line1 = pendingCount > 0
+                ? "还有 " + pendingCount + " 项待办没完成"
+                : "待办全部清空 🎉";
+        String line2;
+        if (courseCount > 0) {
+            JSONObject first = tomorrowCourses.get(0);
+            Integer start = Items.itemStart(first);
+            String firstTime = start == null ? "" : Items.formatMinutes(start);
+            String firstTitle = first.optString("title", "未命名");
+            line2 = "明天 " + courseCount + " 节课，第一节 "
+                    + (firstTime.isEmpty() ? "" : firstTime + " ") + firstTitle;
+        } else {
+            line2 = "明天没有课";
+        }
+
+        NotificationCompat.BigTextStyle style = new NotificationCompat.BigTextStyle()
+                .setBigContentTitle(title)
+                .bigText(line1 + "\n" + line2);
+        NotificationCompat.Builder note = builder(context, CHANNEL_SUMMARY)
+                .setContentTitle(title)
+                .setContentText(line1 + " · " + line2)
+                .setStyle(style);
+        if (pendingCount > 0) {
+            note.addAction(R.drawable.ic_check, "去回顾", openIntent(context, true));
+        }
+
+        deliver(context, ID_SUMMARY, note);
+        prefs.edit().putString(KEY_SUMMARY_SENT_DATE, today).apply();
     }
 
     /** Pre-start reminder for one todo or schedule item. Each row fires at most once per day. */
