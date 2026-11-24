@@ -64,7 +64,7 @@ final class ReminderScheduler {
         SharedPreferences prefs = app.getSharedPreferences(Notifier.PREFS, Context.MODE_PRIVATE);
         SharedPreferences.Editor editor = prefs.edit();
 
-        LocalDateTime morningAt = todayDate.atTime(9, 0);
+        LocalDateTime morningAt = todayDate.atTime(7, 30);
         if (now.isAfter(morningAt)
                 || today.equals(prefs.getString(Notifier.KEY_MORNING_SENT_DATE, ""))) {
             morningAt = morningAt.plusDays(1);

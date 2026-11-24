@@ -152,7 +152,14 @@ public final class MainActivity extends AppCompatActivity implements Repo.Listen
         renderFromSnapshot(Repo.get().snapshot());
         checkDayRollover();
         maybeSilentSync();
-        executor.execute(() -> ReminderScheduler.rescheduleAll(getApplicationContext()));
+        executor.execute(() -> {
+            android.content.Context app = getApplicationContext();
+            int hour = LocalTime.now().getHour();
+            if (hour >= 5 && hour <= 11) {
+                Notifier.maybeSendMorning(app, SessionStore.cache(app), false);
+            }
+            ReminderScheduler.rescheduleAll(app);
+        });
     }
 
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions,
