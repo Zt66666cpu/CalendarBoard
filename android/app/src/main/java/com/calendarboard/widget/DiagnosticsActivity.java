@@ -54,11 +54,7 @@ public final class DiagnosticsActivity extends AppCompatActivity {
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         KnitTheme.load(this);
-        Window window = getWindow();
-        if (window != null) {
-            window.setStatusBarColor(KnitTheme.BG_CREAM);
-            window.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
-        }
+        KnitTheme.configureEdgeToEdge(this);
         setContentView(buildContent());
         if (getIntent().getBooleanExtra(EXTRA_SCROLL_XIAOMI, false)
                 && scrollView != null && xiaomiCard != null) {
@@ -80,6 +76,7 @@ public final class DiagnosticsActivity extends AppCompatActivity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(18), dp(18), dp(18), dp(28));
+        KnitTheme.applySystemBarPadding(root, false);
         scrollView.addView(root, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 

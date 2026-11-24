@@ -53,6 +53,7 @@ public final class ArchiveActivity extends AppCompatActivity implements Repo.Lis
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         KnitTheme.load(this);
+        KnitTheme.configureEdgeToEdge(this);
         Repo.get().loadFromCache(this);
         focusDate = getIntent().getStringExtra(EXTRA_FOCUS_DATE);
         buildUi();
@@ -70,6 +71,7 @@ public final class ArchiveActivity extends AppCompatActivity implements Repo.Lis
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackground(KnitTheme.knitCanvasBackground(this));
         root.setPadding(dp(18), dp(16), dp(18), dp(14));
+        KnitTheme.applySystemBarPadding(root, false);
 
         LinearLayout topBar = new LinearLayout(this);
         topBar.setOrientation(LinearLayout.HORIZONTAL);

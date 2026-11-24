@@ -1,5 +1,6 @@
 package com.calendarboard.widget;
 
+import android.app.Activity;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
@@ -16,8 +17,15 @@ import android.graphics.Shader;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.util.TypedValue;
+import android.view.View;
+import android.view.Window;
 
 import androidx.core.content.ContextCompat;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -85,6 +93,39 @@ final class KnitTheme {
         DANGER_CLAY = ContextCompat.getColor(context, R.color.danger_clay);
         DANGER_CLAY_BG = ContextCompat.getColor(context, R.color.danger_clay_bg);
         DANGER_BORDER = ContextCompat.getColor(context, R.color.danger_border);
+    }
+
+    static void configureEdgeToEdge(Activity activity) {
+        if (activity == null) return;
+        Window window = activity.getWindow();
+        if (window == null) return;
+        WindowCompat.setDecorFitsSystemWindows(window, false);
+        WindowInsetsControllerCompat controller =
+                WindowCompat.getInsetsController(window, window.getDecorView());
+        if (controller != null) {
+            boolean lightBars = !isDark(activity);
+            controller.setAppearanceLightStatusBars(lightBars);
+            controller.setAppearanceLightNavigationBars(lightBars);
+        }
+    }
+
+    static void applySystemBarPadding(View view, boolean includeIme) {
+        if (view == null) return;
+        final int baseLeft = view.getPaddingLeft();
+        final int baseTop = view.getPaddingTop();
+        final int baseRight = view.getPaddingRight();
+        final int baseBottom = view.getPaddingBottom();
+        ViewCompat.setOnApplyWindowInsetsListener(view, (v, windowInsets) -> {
+            Insets bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
+            Insets ime = includeIme
+                    ? windowInsets.getInsets(WindowInsetsCompat.Type.ime())
+                    : Insets.NONE;
+            int bottom = Math.max(bars.bottom, ime.bottom);
+            v.setPadding(baseLeft + bars.left, baseTop + bars.top,
+                    baseRight + bars.right, baseBottom + bottom);
+            return windowInsets;
+        });
+        ViewCompat.requestApplyInsets(view);
     }
 
     static boolean isDark(Context context) {

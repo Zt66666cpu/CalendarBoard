@@ -8,7 +8,7 @@ android {
     defaultConfig {
         applicationId 'com.calendarboard.widget'
         minSdk 26
-        targetSdk 34
+        targetSdk 36
         versionCode 9
         versionName '3.0'
     }

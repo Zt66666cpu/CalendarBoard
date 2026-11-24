@@ -80,6 +80,7 @@ public final class QuickAddSheet extends BottomSheetDialogFragment {
         LinearLayout card = new LinearLayout(context);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(22), dp(18), dp(22), dp(20));
+        KnitTheme.applySystemBarPadding(card, true);
         card.setBackground(KnitTheme.knitCard(context, KnitTheme.SURFACE_OAT,
                 KnitTheme.BORDER_LINEN, 26, true));
         scroll.addView(card, new ViewGroup.LayoutParams(

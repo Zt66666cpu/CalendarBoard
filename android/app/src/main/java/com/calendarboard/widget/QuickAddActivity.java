@@ -25,6 +25,7 @@ public final class QuickAddActivity extends AppCompatActivity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         KnitTheme.load(this);
+        KnitTheme.configureEdgeToEdge(this);
         Repo.get().loadFromCache(this);
         if (getWindow() != null) {
             getWindow().setBackgroundDrawableResource(android.R.color.transparent);

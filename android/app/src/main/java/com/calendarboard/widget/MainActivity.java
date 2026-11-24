@@ -122,11 +122,7 @@ public final class MainActivity extends AppCompatActivity implements Repo.Listen
         super.onCreate(savedInstanceState);
         KnitTheme.load(this);
         Repo.get().loadFromCache(this);
-        Window window = getWindow();
-        if (window != null) {
-            window.setStatusBarColor(KnitTheme.BG_CREAM);
-            window.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
-        }
+        KnitTheme.configureEdgeToEdge(this);
         pendingOpenReview = getIntent().getBooleanExtra(EXTRA_OPEN_REVIEW, false);
         if (Repo.get().snapshot().loggedIn) {
             showHome();
@@ -229,6 +225,7 @@ public final class MainActivity extends AppCompatActivity implements Repo.Listen
         outer.setOrientation(LinearLayout.VERTICAL);
         outer.setGravity(Gravity.CENTER);
         outer.setPadding(dp(24), dp(36), dp(24), dp(36));
+        KnitTheme.applySystemBarPadding(outer, true);
         scroll.addView(outer);
 
         LinearLayout card = new LinearLayout(this);
@@ -393,6 +390,7 @@ public final class MainActivity extends AppCompatActivity implements Repo.Listen
         list.setClipToPadding(false);
         list.setOverScrollMode(View.OVER_SCROLL_NEVER);
         list.setPadding(dp(16), dp(10), dp(16), dp(24));
+        KnitTheme.applySystemBarPadding(list, false);
         list.setBackground(KnitTheme.knitCanvasBackground(this));
 
         agendaAdapter = new AgendaAdapter();
