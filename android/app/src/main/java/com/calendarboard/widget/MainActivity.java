@@ -152,6 +152,7 @@ public final class MainActivity extends AppCompatActivity implements Repo.Listen
         renderFromSnapshot(Repo.get().snapshot());
         checkDayRollover();
         maybeSilentSync();
+        executor.execute(() -> ReminderScheduler.rescheduleAll(getApplicationContext()));
     }
 
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions,
@@ -376,6 +377,7 @@ public final class MainActivity extends AppCompatActivity implements Repo.Listen
         }
         ensureNotificationPermission();
         if (setupBanner != null) setupBanner.refresh();
+        CalendarWidget.schedulePeriodic(this);
     }
 
     private RecyclerView buildHomeView() {

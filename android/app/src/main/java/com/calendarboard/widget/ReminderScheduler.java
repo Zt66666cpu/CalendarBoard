@@ -70,19 +70,22 @@ final class ReminderScheduler {
             morningAt = morningAt.plusDays(1);
         }
         long morningMs = toMillis(morningAt);
-        scheduleInexact(app, alarms, morningMs, REQ_MORNING, ReminderReceiver.ACTION_MORNING, null);
+        scheduleExactOrFallback(app, alarms, morningMs, REQ_MORNING,
+                ReminderReceiver.ACTION_MORNING, null);
         editor.putLong(KEY_NEXT_MORNING, morningMs);
 
         LocalDateTime noonAt = todayDate.atTime(12, 0);
         if (!now.isBefore(noonAt)) noonAt = noonAt.plusDays(1);
         long noonMs = toMillis(noonAt);
-        scheduleInexact(app, alarms, noonMs, REQ_NOON, ReminderReceiver.ACTION_NOON, null);
+        scheduleExactOrFallback(app, alarms, noonMs, REQ_NOON,
+                ReminderReceiver.ACTION_NOON, null);
         editor.putLong(KEY_NEXT_NOON, noonMs);
 
         LocalDateTime eveningAt = todayDate.atTime(18, 0);
         if (!now.isBefore(eveningAt)) eveningAt = eveningAt.plusDays(1);
         long eveningMs = toMillis(eveningAt);
-        scheduleInexact(app, alarms, eveningMs, REQ_EVENING, ReminderReceiver.ACTION_EVENING, null);
+        scheduleExactOrFallback(app, alarms, eveningMs, REQ_EVENING,
+                ReminderReceiver.ACTION_EVENING, null);
         editor.putLong(KEY_NEXT_EVENING, eveningMs);
 
         int trigger = Items.reviewTriggerMinutes(allItems, today);

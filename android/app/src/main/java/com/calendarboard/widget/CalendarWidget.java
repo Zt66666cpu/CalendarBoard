@@ -37,8 +37,7 @@ public final class CalendarWidget extends AppWidgetProvider {
     @Override public void onEnabled(Context context) { schedulePeriodic(context); }
 
     @Override public void onDisabled(Context context) {
-        JobScheduler jobs = (JobScheduler) context.getSystemService(Context.JOB_SCHEDULER_SERVICE);
-        jobs.cancel(PERIODIC_JOB);
+        // Keep periodic sync alive even when no desktop widget is placed so reminders stay fresh.
     }
 
     @Override public void onUpdate(Context context, AppWidgetManager manager, int[] ids) {
@@ -124,9 +123,9 @@ public final class CalendarWidget extends AppWidgetProvider {
         jobs.schedule(job);
     }
 
-    private static void schedulePeriodic(Context context) {
+    static void schedulePeriodic(Context context) {
         JobScheduler jobs = (JobScheduler) context.getSystemService(Context.JOB_SCHEDULER_SERVICE);
-        if (jobs.getPendingJob(PERIODIC_JOB) != null) return;
+        if (jobs == null || jobs.getPendingJob(PERIODIC_JOB) != null) return;
         JobInfo job = new JobInfo.Builder(PERIODIC_JOB, new ComponentName(context, SyncService.class))
                 .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
                 .setPeriodic(30 * 60 * 1000L)

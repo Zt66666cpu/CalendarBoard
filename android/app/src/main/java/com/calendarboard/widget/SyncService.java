@@ -15,6 +15,7 @@ public final class SyncService extends JobService {
                 NextClassWidget.renderAll(this);
                 CalendarWidget.renderAll(this);
                 Notifier.updateCourseIsland(this, SessionStore.cache(this));
+                ReminderScheduler.rescheduleAll(this);
                 jobFinished(params, false);
             }
         }, "calendar-widget-sync").start();

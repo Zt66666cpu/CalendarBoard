@@ -133,6 +133,10 @@ public final class ReminderReceiver extends BroadcastReceiver {
         }
 
         ReminderScheduler.rescheduleAll(context);
+        if (Intent.ACTION_BOOT_COMPLETED.equals(action)
+                || Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)) {
+            CalendarWidget.schedulePeriodic(context);
+        }
 
         boolean refreshIsland = ACTION_ISLAND.equals(action)
                 || Intent.ACTION_USER_PRESENT.equals(action)
