@@ -15,3 +15,6 @@ backups/
 macos-widget/ui/core.js
 macos-widget/.build/
 WORKER_RULES.md
+
+# Built Android packages (publish via GitHub Releases)
+*.apk
