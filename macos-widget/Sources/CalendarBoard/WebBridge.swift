@@ -124,6 +124,19 @@ final class WebBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         webView.autoresizingMask = [.width, .height]
     }
 
+    /// 让网页视图本身淡入淡出（SwiftUI 过渡可能不作用于 WKWebView）。duration 为 0 时直接设置。
+    func fadeWebView(to alpha: CGFloat, duration: TimeInterval) {
+        if duration <= 0 {
+            webView.alphaValue = alpha
+            return
+        }
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = duration
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            webView.animator().alphaValue = alpha
+        }
+    }
+
     func triggerSync() {
         evaluateJS("window.__triggerSync && window.__triggerSync();")
     }

@@ -4,6 +4,7 @@ import AppKit
 final class StatusMenu: NSObject {
     private let statusItem: NSStatusItem
     private let toggleMenuItem = NSMenuItem()
+    private let reserveSpaceItem = NSMenuItem()
     private let islandController: IslandController
     private let webBridge: WebBridge
     private let hotkeys: Hotkeys
@@ -66,6 +67,12 @@ final class StatusMenu: NSObject {
         hotkeysItem.target = self
         menu.addItem(hotkeysItem)
 
+        reserveSpaceItem.title = "为灵动岛预留状态栏空间"
+        reserveSpaceItem.target = self
+        reserveSpaceItem.action = #selector(handleToggleReserveSpace)
+        reserveSpaceItem.state = islandController.notchSpacer.isEnabled ? .on : .off
+        menu.addItem(reserveSpaceItem)
+
         let settingsItem = NSMenuItem(
             title: "设置与云端连接…",
             action: #selector(handleOpenSettings),
@@ -101,6 +108,13 @@ final class StatusMenu: NSObject {
 
     @objc private func handleShowHotkeys() {
         hotkeys.showRecorderWindow()
+    }
+
+    @objc private func handleToggleReserveSpace() {
+        let spacer = islandController.notchSpacer
+        spacer.isEnabled.toggle()
+        reserveSpaceItem.state = spacer.isEnabled ? .on : .off
+        islandController.refreshNotchSpacer()
     }
 
     @objc private func handleOpenSettings() {

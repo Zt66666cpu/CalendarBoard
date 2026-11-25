@@ -71,6 +71,11 @@ public final class DynamicNotch<Expanded, CompactLeading, CompactTrailing>: Obse
     /// Configuration for customizing transition animations and behavior.
     public var transitionConfiguration = DynamicNotchTransitionConfiguration()
 
+    /// 本地修改（CalendarBoard）：面板窗口固定尺寸。为 nil 时沿用上游“屏幕一半”的行为。
+    /// 宿主应设为能容纳最大展开内容（含阴影余量）的尺寸，避免展开过程中裁切、展开后再 setFrame。
+    /// 使用闭包而不是固定值，因为刘海高度和可见区域会随屏幕变化。
+    public var panelSize: (@MainActor (NSScreen) -> CGSize)?
+
     /// Content
     let expandedContent: Expanded
     let compactLeadingContent: CompactLeading
@@ -145,9 +150,11 @@ public final class DynamicNotch<Expanded, CompactLeading, CompactTrailing>: Obse
         Task {
             let sequence = NotificationCenter.default.notifications(named: NSApplication.didChangeScreenParametersNotification)
             for await _ in sequence.map(\.name) {
-                if let screen = NSScreen.screens.first {
-                    initializeWindow(screen: screen)
-                }
+                // 本地修改（CalendarBoard）：隐藏态不建窗口；非隐藏态在原屏幕上重建，且不抢前台。
+                guard state != .hidden,
+                      let screen = windowController?.window?.screen ?? NSScreen.main ?? NSScreen.screens.first
+                else { continue }
+                initializeWindow(screen: screen, orderFront: true)
             }
         }
     }
@@ -365,9 +372,16 @@ private extension DynamicNotch {
         )
         panel.contentView = view
 
-        let size = NSSize(
+        // 本地修改（CalendarBoard）：优先使用宿主提供的固定尺寸，避免展开过程中裁切，
+        // 以及展开结束后再 setFrame 造成的尺寸跳变。
+        let fallback = NSSize(
             width: screen.frame.width / 2,
             height: screen.frame.height / 2
+        )
+        let requested = panelSize?(screen) ?? fallback
+        let size = NSSize(
+            width: min(requested.width, screen.frame.width),
+            height: min(requested.height, screen.frame.height)
         )
         let origin = NSPoint(
             x: screen.frame.midX - (size.width / 2),

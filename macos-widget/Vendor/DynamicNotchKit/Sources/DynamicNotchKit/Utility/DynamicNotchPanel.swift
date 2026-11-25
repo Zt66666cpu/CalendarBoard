@@ -22,7 +22,9 @@ final class DynamicNotchPanel: NSPanel {
         )
         self.hasShadow = false
         self.backgroundColor = .clear
-        self.level = .screenSaver
+        // 本地修改（CalendarBoard）：原为 .screenSaver，会盖住输入法候选框和系统弹出菜单。
+        // 只需高于菜单栏即可覆盖刘海区域。
+        self.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
         self.collectionBehavior = [.canJoinAllSpaces, .stationary]
     }
 

@@ -45,7 +45,10 @@
 - **本地化原因**：本机仅有 Command Line Tools（无完整 `Xcode.app`），缺少 `libSwiftUIMacros.dylib`。仓库自带的 `MacOSX27.0.sdk` 将 `@State` 等改为外部宏，CLT 无法展开；`build.sh` 因此在 CLT-only 环境自动选择 `MacOSX26.5.sdk`。在此基础上，DynamicNotchKit 1.1.0 仍有两处宏用法不兼容，故作最小替换：
   1. `Sources/DynamicNotchKit/Utility/EnvironmentValues+Extensions.swift`：将 2 处 `@Entry` 改为经典 `EnvironmentKey` 实现（`notchStyle` / `notchSection`），行为不变。
   2. `Sources/DynamicNotchKit/Views/NotchShape.swift`：删除末尾仅供 Xcode 画布使用的 `#Preview` 代码块。
-- 除上述两处外未改动上游实现；后续若升级 DynamicNotchKit，需重新核对宏兼容性，或改回上游远程依赖。
+  3. `Sources/DynamicNotchKit/DynamicNotch/DynamicNotch.swift`：新增 `panelSize` 闭包属性，`initializeWindow` 优先使用；`observeScreenParameters` 隐藏态不重建窗口、沿用当前屏幕。用于消除展开末尾的窗口尺寸跳变。
+  4. `Sources/DynamicNotchKit/Views/NotchView.swift`：`expandedContent()` 的展开过渡由 `.blur + .scale(y: 0.6) + .opacity` 改为 `.opacity + .offset(y: -8)`。SwiftUI 的模糊/缩放对 `NSViewRepresentable` 内的 `WKWebView` 不生效，原过渡会让网页内容“先硬切再出现”；如需恢复上游观感，改回该方法原一行即可。
+  5. `Sources/DynamicNotchKit/Utility/DynamicNotchPanel.swift`：面板层级由 `.screenSaver` 降为 `.mainMenu + 3`，避免遮挡输入法候选框和系统弹出菜单。
+- 除上述五处外未改动上游实现；后续若升级 DynamicNotchKit，需重新核对宏兼容性，或改回上游远程依赖。
 
 ## P4.1 依赖核实结论（DynamicNotchKit 1.1.0 / KeyboardShortcuts 1.9.4）
 
@@ -55,7 +58,7 @@
 4. 过渡动效通过 `DynamicNotchTransitionConfiguration` 配置，四参数为 `openingAnimation`、`closingAnimation`、`conversionAnimation`、`skipIntermediateHides`；开启“减弱动态效果”时应改用 0.20s `.easeInOut`。
 5. 面板窗口可通过 `windowController?.window` 取得，窗口为无边框、非激活型 `NSPanel`，`canBecomeKey == true`；需要键盘输入时调用 `makeKey()` 即可，无需额外切换激活策略。
 6. 刘海判定使用 `NSScreen.auxiliaryTopLeftArea` 与 `auxiliaryTopRightArea` 是否同时存在；启动时及 `NSApplication.didChangeScreenParametersNotification` 时需重新计算并向 Web 层同步 `notch` / `floating` 外观。
-7. `DynamicNotch` 默认容器窗口尺寸不足以容纳 `860×560` 的月历视图，展开后必须将面板窗口夹紧到屏幕可见区域并至少保持半屏宽高，水平居中贴顶，避免内容被裁切。
+7. `DynamicNotch` 默认容器窗口尺寸（屏幕一半）不足以容纳 `860×560` 的月历视图。本仓库改为创建窗口前通过 `panelSize` 闭包一次性给出最终尺寸（内容 + 内边距 + 阴影余量，并按屏幕尺寸夹紧），水平居中贴顶；展开过程中与展开结束后都不再调用 `setFrame`，既避免裁切也避免尺寸跳变。
 8. `WKWebView` 不随课程岛隐藏而销毁：使用屏幕外透明保活窗口（`alphaValue = 0`、`ignoresMouseEvents = true`、`orderBack`）承载 WebView，隐藏时调用 `attachToKeepAliveWindow()`，从而保留页面状态、会话与 JavaScript 定时器。
 
 ## Material Symbols（Android 矢量图标）

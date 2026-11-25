@@ -142,7 +142,9 @@ struct NotchView<Expanded, CompactLeading, CompactTrailing>: View where Expanded
         HStack(spacing: 0) {
             if dynamicNotch.state == .expanded {
                 dynamicNotch.expandedContent
-                    .transition(.blur(intensity: 10).combined(with: .scale(y: 0.6, anchor: .top)).combined(with: .opacity))
+                    // 本地修改（CalendarBoard）：SwiftUI 的 blur/scale 对 WKWebView 基本不生效，
+                    // 展开时表现为“网页先硬切再出现”；改为淡入 + 轻微上移，观感更连贯。
+                    .transition(.opacity.combined(with: .offset(y: -8)))
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) { Color.clear.frame(height: dynamicNotch.notchSize.height) }
