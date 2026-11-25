@@ -80,6 +80,10 @@ public final class ReminderReceiver extends BroadcastReceiver {
     }
 
     private static void handleIslandTick(Context context) {
+        context.getSharedPreferences(Notifier.PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putLong(ReminderScheduler.KEY_LAST_ISLAND_TICK, System.currentTimeMillis())
+                .apply();
         JSONObject cache = SessionStore.cache(context);
         Notifier.updateIsland(context, cache);
         ReminderScheduler.rescheduleIsland(context, cache);

@@ -165,7 +165,13 @@ final class Notifier {
         }
 
         boolean readOnly = isReadOnly(cache);
-        postIsland(context, plan, ID_ISLAND, 0L, dismissKey, readOnly);
+        // 进行中的岛到下课时刻由系统自动撤下：即使下一次闹钟被 Doze 推迟，也不会挂着过期内容。
+        // 只给 ACTIVE 设：UPCOMING 与 ACTIVE 共用同一个 dismissKey，避免超时被误记成用户划掉。
+        long timeoutMs = 0L;
+        if (IslandPlanner.CHIP_USES_CHRONOMETER && plan.kind == IslandPlanner.Kind.ACTIVE) {
+            timeoutMs = Math.max(1_000L, plan.targetMs - System.currentTimeMillis());
+        }
+        postIsland(context, plan, ID_ISLAND, timeoutMs, dismissKey, readOnly);
     }
 
     static void postIsland(Context context, IslandPlanner.Plan plan, int notificationId,
@@ -204,9 +210,15 @@ final class Notifier {
             }
         }
 
-        String publicText = active
-                ? "有正在进行的安排"
-                : ("马上".equals(plan.shortText) ? "马上有安排" : plan.shortText + "有安排");
+        String publicText;
+        if (active) {
+            publicText = "有正在进行的安排";
+        } else if (IslandPlanner.CHIP_USES_CHRONOMETER) {
+            // 不再每分钟重发，"N分后"会过期，锁屏改显示固定的开始时刻
+            publicText = startText + " 有安排";
+        } else {
+            publicText = "马上".equals(plan.shortText) ? "马上有安排" : plan.shortText + "有安排";
+        }
         NotificationCompat.Builder publicNote = new NotificationCompat.Builder(context, CHANNEL_ISLAND)
                 .setSmallIcon(R.drawable.ic_stat_calendar)
                 .setContentTitle("课表日历")
@@ -239,8 +251,19 @@ final class Notifier {
             note.setDeleteIntent(deleteIntent);
         }
 
+        if (IslandPlanner.CHIP_USES_CHRONOMETER) {
+            // 倒计时到下课（进行中）或开始（即将开始），由系统逐秒走字，不依赖我们的闹钟。
+            // 胶囊显示优先级：shortCriticalText > 计时器，所以这里不能再设 shortCriticalText。
+            note.setWhen(plan.targetMs)
+                    .setShowWhen(true)
+                    .setUsesChronometer(true)
+                    .setChronometerCountDown(true);
+        }
         if (promoted) {
-            note.setRequestPromotedOngoing(true).setShortCriticalText(plan.shortText);
+            note.setRequestPromotedOngoing(true);
+            if (!IslandPlanner.CHIP_USES_CHRONOMETER) {
+                note.setShortCriticalText(plan.shortText);
+            }
         }
 
         if (active) {

@@ -10,6 +10,26 @@ import java.time.LocalTime;
 
 public final class SyncService extends JobService {
     @Override public boolean onStartJob(JobParameters params) {
+        if (params.getJobId() == CalendarWidget.ISLAND_GUARD_JOB) {
+            new Thread(() -> {
+                try {
+                    getSharedPreferences(Notifier.PREFS, MODE_PRIVATE)
+                            .edit()
+                            .putLong(ReminderScheduler.KEY_LAST_ISLAND_GUARD,
+                                    System.currentTimeMillis())
+                            .apply();
+                    JSONObject cache = SessionStore.cache(this);
+                    Notifier.updateIsland(this, cache);
+                    ReminderScheduler.rescheduleIsland(this, cache);
+                } catch (Exception error) {
+                    Log.w("CalendarBoard", "Island guard failed: " + error.getClass().getSimpleName());
+                } finally {
+                    jobFinished(params, false);
+                }
+            }, "island-guard").start();
+            return true;
+        }
+
         new Thread(() -> {
             boolean syncSucceeded = false;
             try {

@@ -22,6 +22,14 @@ final class IslandPlanner {
     static final int DEFAULT_COURSE_MIN = LESSON_MIN * 2 + BREAK_MIN;
     static final int DEFAULT_SCHEDULE_MIN = 30;
 
+    /**
+     * true：状态栏胶囊用系统倒计时（setUsesChronometer）自己走字，闹钟只在状态切换点和
+     * 每 TICK_MIN 分钟刷新进度条时触发，避开 Doze 对 allow-while-idle 闹钟约 9 分钟一次的限流。
+     * false：回退到旧做法（shortCriticalText 文字 + 每分钟一次闹钟）。
+     */
+    static final boolean CHIP_USES_CHRONOMETER = true;
+    static final int TICK_MIN = 5;
+
     enum Kind { ACTIVE, UPCOMING, NONE }
 
     static final class Plan {
@@ -90,11 +98,17 @@ final class IslandPlanner {
         List<Candidate> active = new ArrayList<>();
         List<Candidate> upcoming = new ArrayList<>();
         long earliestFutureWindowMs = Long.MAX_VALUE;
+        // 任意候选项最近的一个状态切换点（进入提前窗口 / 开始 / 结束）
+        long nextEventMs = Long.MAX_VALUE;
 
         if (all != null) {
             for (JSONObject item : all) {
                 Candidate c = toCandidate(item, today, tomorrow, zone);
                 if (c == null) continue;
+
+                if (c.windowStartMs > nowMs) nextEventMs = Math.min(nextEventMs, c.windowStartMs);
+                if (c.startMs > nowMs) nextEventMs = Math.min(nextEventMs, c.startMs);
+                if (c.canBeActive && c.endMs > nowMs) nextEventMs = Math.min(nextEventMs, c.endMs);
 
                 if (c.canBeActive && c.startMs <= nowMs && nowMs < c.endMs) {
                     active.add(c);
@@ -115,7 +129,10 @@ final class IslandPlanner {
                 .comparingLong((Candidate c) -> c.startMs)
                 .thenComparingInt(c -> c.typeRank));
 
-        long nextMinuteMs = toMillis(now.truncatedTo(ChronoUnit.MINUTES).plusMinutes(1), zone);
+        LocalDateTime minuteFloor = now.truncatedTo(ChronoUnit.MINUTES);
+        long nextMinuteMs = toMillis(minuteFloor.plusMinutes(1), zone);
+        long nextTickMs = toMillis(
+                minuteFloor.plusMinutes(TICK_MIN - (minuteFloor.getMinute() % TICK_MIN)), zone);
 
         if (!active.isEmpty()) {
             Candidate lead = active.get(0);
@@ -124,8 +141,12 @@ final class IslandPlanner {
             long remainSec = Math.max(0L, (lead.endMs - nowMs) / 1000L);
             int remainMin = (int) Math.max(1L, (remainSec + 59L) / 60L);
             String shortText = "剩" + remainMin + "分";
+            // 进行中：要定时刷新进度条，同时不能错过任何状态切换点
+            long next = CHIP_USES_CHRONOMETER
+                    ? Math.min(nextTickMs, nextEventMs)
+                    : nextMinuteMs;
             return new Plan(Kind.ACTIVE, lead.item, lead.startMs, lead.endMs,
-                    lead.durationMinutes, elapsed, shortText, nextUp, nextMinuteMs);
+                    lead.durationMinutes, elapsed, shortText, nextUp, next);
         }
 
         if (!upcoming.isEmpty()) {
@@ -139,8 +160,10 @@ final class IslandPlanner {
                 int remainMin = (int) ((remainSec + 59L) / 60L);
                 shortText = remainMin + "分后";
             }
+            // 即将开始：倒计时由系统走，没有进度条，只需在下一个切换点（通常是开始时刻）醒来
+            long next = CHIP_USES_CHRONOMETER ? nextEventMs : nextMinuteMs;
             return new Plan(Kind.UPCOMING, lead.item, lead.startMs, lead.startMs,
-                    lead.durationMinutes, 0, shortText, nextUp, nextMinuteMs);
+                    lead.durationMinutes, 0, shortText, nextUp, next);
         }
 
         long nextChange = earliestFutureWindowMs == Long.MAX_VALUE ? 0L : earliestFutureWindowMs;

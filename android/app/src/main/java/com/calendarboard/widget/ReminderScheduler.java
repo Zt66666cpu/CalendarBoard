@@ -35,6 +35,9 @@ final class ReminderScheduler {
     static final String KEY_NEXT_AHEAD = "next_ahead_ms";
     static final String KEY_NEXT_REVIEW = "next_review_ms";
     static final String KEY_NEXT_ISLAND = "next_island_ms";
+    /** 诊断用：岛闹钟上一次真正触发的时刻、守护任务上一次运行的时刻（打开 App 不会覆盖）。 */
+    static final String KEY_LAST_ISLAND_TICK = "last_island_tick_ms";
+    static final String KEY_LAST_ISLAND_GUARD = "last_island_guard_ms";
 
     private static final int REQ_MORNING = 4101;
     private static final int REQ_NOON = 4102;

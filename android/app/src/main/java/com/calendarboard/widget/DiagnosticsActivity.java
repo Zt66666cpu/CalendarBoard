@@ -144,6 +144,8 @@ public final class DiagnosticsActivity extends AppCompatActivity {
         addTimeRow(card, ReminderScheduler.KEY_NEXT_AHEAD, "提前提醒");
         addTimeRow(card, ReminderScheduler.KEY_NEXT_REVIEW, "每日回顾");
         addTimeRow(card, ReminderScheduler.KEY_NEXT_ISLAND, "灵动岛");
+        addTimeRow(card, ReminderScheduler.KEY_LAST_ISLAND_TICK, "灵动岛上次实际触发");
+        addTimeRow(card, ReminderScheduler.KEY_LAST_ISLAND_GUARD, "灵动岛守护上次运行");
         return card;
     }
 

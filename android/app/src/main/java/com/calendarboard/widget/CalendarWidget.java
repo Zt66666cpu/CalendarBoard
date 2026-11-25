@@ -26,6 +26,7 @@ public final class CalendarWidget extends AppWidgetProvider {
 
     private static final int IMMEDIATE_JOB = 101;
     private static final int PERIODIC_JOB = 102;
+    static final int ISLAND_GUARD_JOB = 103;
     private static final String TAG = "CalendarBoardWidget";
 
     private static String widgetBody(String value, String heading, String emptyText) {
@@ -125,12 +126,22 @@ public final class CalendarWidget extends AppWidgetProvider {
 
     static void schedulePeriodic(Context context) {
         JobScheduler jobs = (JobScheduler) context.getSystemService(Context.JOB_SCHEDULER_SERVICE);
-        if (jobs == null || jobs.getPendingJob(PERIODIC_JOB) != null) return;
-        JobInfo job = new JobInfo.Builder(PERIODIC_JOB, new ComponentName(context, SyncService.class))
-                .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
-                .setPeriodic(30 * 60 * 1000L)
-                .build();
-        jobs.schedule(job);
+        if (jobs == null) return;
+        if (jobs.getPendingJob(PERIODIC_JOB) == null) {
+            JobInfo job = new JobInfo.Builder(PERIODIC_JOB, new ComponentName(context, SyncService.class))
+                    .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
+                    .setPeriodic(30 * 60 * 1000L)
+                    .build();
+            jobs.schedule(job);
+        }
+        // 灵动岛守护：不要求联网，只用缓存重算并补挂闹钟链。闹钟链若被系统丢掉，最迟约 15 分钟内自愈。
+        if (jobs.getPendingJob(ISLAND_GUARD_JOB) == null) {
+            JobInfo guard = new JobInfo.Builder(ISLAND_GUARD_JOB,
+                    new ComponentName(context, SyncService.class))
+                    .setPeriodic(15 * 60 * 1000L)
+                    .build();
+            jobs.schedule(guard);
+        }
     }
 
     static void renderAll(Context context) {

@@ -54,7 +54,35 @@ public class IslandPlannerTest {
         assertEquals(IslandPlanner.Kind.UPCOMING, p.kind);
         assertEquals("20分后", p.shortText);
         assertTrue(p.shortText.length() <= 7);
-        assertEquals(ms(TODAY.atTime(7, 41)), p.nextChangeMs);
+        // 倒计时由系统走，下一次只需在开始时刻醒来
+        assertEquals(ms(TODAY.atTime(8, 0)), p.nextChangeMs);
+    }
+
+    @Test
+    public void testActiveCourseTicksOnFiveMinuteBoundary() throws Exception {
+        JSONObject course = item("c1", "课程", TODAY, "高等数学", "08:00", "09:40", false);
+        IslandPlanner.Plan mid = IslandPlanner.plan(
+                Collections.singletonList(course), TODAY.atTime(8, 21, 30), ZONE);
+        assertEquals(IslandPlanner.Kind.ACTIVE, mid.kind);
+        assertEquals(ms(TODAY.atTime(8, 25)), mid.nextChangeMs);
+
+        IslandPlanner.Plan onBoundary = IslandPlanner.plan(
+                Collections.singletonList(course), TODAY.atTime(8, 25), ZONE);
+        assertEquals(ms(TODAY.atTime(8, 30)), onBoundary.nextChangeMs);
+    }
+
+    @Test
+    public void testActiveTickNeverSkipsStateChange() throws Exception {
+        JSONObject course = item("c1", "课程", TODAY, "高等数学", "08:00", "09:38", false);
+        JSONObject schedule = item("s1", "日程", TODAY, "班会", "09:02", "09:30", false);
+        // 下课 9:38 早于下一个 5 分钟点 9:40
+        IslandPlanner.Plan nearEnd = IslandPlanner.plan(
+                Collections.singletonList(course), TODAY.atTime(9, 36), ZONE);
+        assertEquals(ms(TODAY.atTime(9, 38)), nearEnd.nextChangeMs);
+        // 其他事项进入提前窗口（8:32）也要醒来
+        IslandPlanner.Plan withOther = IslandPlanner.plan(
+                Arrays.asList(course, schedule), TODAY.atTime(8, 31), ZONE);
+        assertEquals(ms(TODAY.atTime(8, 32)), withOther.nextChangeMs);
     }
 
     @Test
