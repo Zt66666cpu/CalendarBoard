@@ -42,6 +42,11 @@ function parseJsonSafe(raw, fallback) {
   try { return JSON.parse(raw); } catch { return fallback; }
 }
 
+// 写本地缓存时去掉只在内存里用的乐观更新标记
+function cacheItems(list) {
+  return (Array.isArray(list) ? list : []).map(({ _pending, ...rest }) => rest);
+}
+
 function isPlaceholderConfig(cfg) {
   if (!cfg || !cfg.url || !cfg.key) return true;
   return cfg.url.includes('YOUR_PROJECT') || cfg.key.includes('REPLACE_WITH_YOUR_KEY');
@@ -95,6 +100,11 @@ const state = {
   deleteConfirmArmed: false,
   deleteConfirmTimer: null,
   detailDayIso: null,
+  draftId: null, // 一次弹窗固定的行 id，避免重复点击生成多条
+  savingEntry: false,
+  savingQuickAdd: false,
+  entryDuration: 60,
+  entryTimeTouched: false,
 };
 
 let activeUndoStatusId = null;
@@ -199,6 +209,7 @@ const apiClient = CBCore.createApi({
     if (!found) return undefined;
     const copy = { ...found };
     delete copy.id;
+    delete copy._pending;
     return copy;
   },
 });
@@ -1146,15 +1157,21 @@ async function deleteArchivedItems(itemsToDelete) {
     setStatus(`已清理 ${itemsToDelete.length} 条归档`);
     return;
   }
-  setStatus('正在清理归档…');
+  const previousItems = state.items;
+  const ids = new Set(itemsToDelete.map((it) => it.id));
+  state.items = state.items.filter((it) => !ids.has(it.id));
+  storeSet('cache', cacheItems(state.items));
+  renderAll();
+  setStatus(`已清理 ${itemsToDelete.length} 条归档`);
   try {
     for (const item of itemsToDelete) {
-      await apiClient.remove(item.id);
+      await apiClient.enqueueWrite(item.id, () => apiClient.remove(item.id));
     }
-    await syncItems();
-    setStatus(`已清理 ${itemsToDelete.length} 条归档`);
   } catch (err) {
-    setStatus(err.message, true);
+    state.items = previousItems;
+    storeSet('cache', cacheItems(state.items));
+    renderAll();
+    setStatus(`清理失败：${err.message}`, true);
   }
 }
 
@@ -1411,6 +1428,81 @@ function resetDeleteConfirm() {
   if (btn) btn.textContent = '删除';
 }
 
+// 时间选择：默认值、结束跟随开始、快捷时长
+const DEFAULT_DURATION_MIN = 60;
+
+function defaultStartMinutes(dateIso) {
+  const now = new Date();
+  if (dateIso === localDate(now)) {
+    const minutes = now.getHours() * 60 + now.getMinutes();
+    const next = Math.ceil((minutes + 1) / 30) * 30; // 下一个整点或半点
+    return next >= 24 * 60 ? null : next;
+  }
+  return 9 * 60;
+}
+
+function defaultEndMinutes(start) {
+  return Math.min(start + DEFAULT_DURATION_MIN, 23 * 60 + 59);
+}
+
+// 新建时按类别/日期填默认起止：只有日程默认带时间
+function applyDefaultEntryTimes() {
+  if ($('entryType').value !== '日程') {
+    $('entryStart').value = '';
+    $('entryEnd').value = '';
+    return;
+  }
+  const start = defaultStartMinutes($('entryDate').value);
+  state.entryDuration = DEFAULT_DURATION_MIN;
+  $('entryStart').value = start === null ? '' : CBCore.formatMinutes(start);
+  $('entryEnd').value = start === null ? '' : CBCore.formatMinutes(defaultEndMinutes(start));
+}
+
+// 开始时间变化：结束时间按当前时长平移
+function syncEntryEndWithStart(markTouched = true) {
+  if (markTouched) state.entryTimeTouched = true;
+  const start = CBCore.parseMinutes($('entryStart').value);
+  if (start === null) {
+    $('entryEnd').value = ''; // 开始时间被清空时结束时间一起清空
+    return;
+  }
+  const duration = Number.isFinite(state.entryDuration) && state.entryDuration > 0
+    ? state.entryDuration
+    : DEFAULT_DURATION_MIN;
+  $('entryEnd').value = CBCore.formatMinutes(Math.min(start + duration, 23 * 60 + 59));
+}
+
+// 结束时间变化：记住新的时长
+function syncEntryDurationFromEnd() {
+  state.entryTimeTouched = true;
+  const start = CBCore.parseMinutes($('entryStart').value);
+  const end = CBCore.parseMinutes($('entryEnd').value);
+  if (start !== null && end !== null && end > start) state.entryDuration = end - start;
+}
+
+function applyEntryTimePreset(preset) {
+  const startInput = $('entryStart');
+  const endInput = $('entryEnd');
+  state.entryTimeTouched = true;
+  if (preset === 'allDay') {
+    startInput.value = '';
+    endInput.value = '';
+    syncEntryEndState();
+    return;
+  }
+  const minutes = Number(preset);
+  if (!Number.isFinite(minutes) || minutes <= 0) return;
+  let start = CBCore.parseMinutes(startInput.value);
+  if (start === null) {
+    start = defaultStartMinutes($('entryDate').value);
+    if (start === null) start = 9 * 60;
+  }
+  state.entryDuration = minutes;
+  startInput.value = CBCore.formatMinutes(start);
+  endInput.value = CBCore.formatMinutes(Math.min(start + minutes, 23 * 60 + 59));
+  syncEntryEndState();
+}
+
 function openEntryModal(item = null, defaultType = '日程') {
   if (state.readOnly) {
     setStatus('请升级应用', true);
@@ -1421,12 +1513,19 @@ function openEntryModal(item = null, defaultType = '日程') {
     return;
   }
   state.editing = item;
+  state.draftId = item?.id || makeUuid32(); // 一次弹窗只对应一个 id
+  state.entryTimeTouched = false;
   $('entryModalTitle').textContent = item ? '编辑事项' : '新增事项';
   $('entryType').value = item?.type || defaultType;
   $('entryDate').value = item?.date || state.selected;
   $('entryTitle').value = item?.title || '';
-  $('entryStart').value = CBCore.formatMinutes(CBCore.itemStart(item));
-  $('entryEnd').value = CBCore.formatMinutes(CBCore.itemEnd(item));
+  const itemStart = CBCore.itemStart(item);
+  const itemEnd = CBCore.itemEnd(item);
+  $('entryStart').value = CBCore.formatMinutes(itemStart);
+  $('entryEnd').value = CBCore.formatMinutes(itemEnd);
+  state.entryDuration = itemStart !== null && itemEnd !== null && itemEnd > itemStart
+    ? itemEnd - itemStart
+    : DEFAULT_DURATION_MIN;
   $('entryPlace').value = itemPlace(item || {});
   $('deleteEntryBtn').classList.toggle('hidden', !item);
   $('openLinkBtn').classList.toggle(
@@ -1434,6 +1533,7 @@ function openEntryModal(item = null, defaultType = '日程') {
     !(item && typeof item.link === 'string' && item.link)
   );
   resetDeleteConfirm();
+  if (!item) applyDefaultEntryTimes(); // 新建时给日程填默认起止
   syncEntryEndState();
 
   $('entryBackdrop').classList.remove('hidden');
@@ -1444,16 +1544,20 @@ function openEntryModal(item = null, defaultType = '日程') {
 function closeEntryModal() {
   $('entryBackdrop').classList.add('hidden');
   state.editing = null;
+  state.draftId = null;
   resetDeleteConfirm();
+  if (globalThis.CBTimeCombo) globalThis.CBTimeCombo.closeAll();
   postNative({ action: 'setModalOpen', open: false });
 }
 
 async function saveEntry(event) {
   event.preventDefault();
+  if (state.savingEntry) return;
   if (state.readOnly) {
     setStatus('请升级应用', true);
     return;
   }
+  const submitBtn = $('entryForm').querySelector('button[type="submit"]');
   const start = $('entryStart').value;
   const end = $('entryEnd').value;
   if ((!start && end) || (start && end && CBCore.parseMinutes(end) <= CBCore.parseMinutes(start))) {
@@ -1463,7 +1567,7 @@ async function saveEntry(event) {
   const title = $('entryTitle').value.trim();
   if (!title) return;
 
-  const id = state.editing?.id || makeUuid32();
+  const id = state.draftId || state.editing?.id || makeUuid32();
   const payload = {
     ...(state.editing ? { ...state.editing } : {}),
     date: $('entryDate').value,
@@ -1495,27 +1599,54 @@ async function saveEntry(event) {
     return;
   }
 
-  let previousItems = null;
+  const isEditing = Boolean(state.editing); // closeEntryModal 之后 state.editing 会被清空
+
+  state.savingEntry = true;
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = '保存中…';
+  }
   try {
-    if (state.editing) {
-      previousItems = state.items;
-      state.items = state.items.map((it) => (it.id === id ? { ...it, ...payload } : it));
-      await apiClient.enqueueWrite(id, () => apiClient.update(id, payload));
-    } else {
-      await apiClient.create(id, payload);
-    }
+    // 乐观更新：先渲染、关弹窗，再写云端；失败回滚
+    const previousItems = state.items;
+    const optimistic = { ...payload, id, _pending: true };
+    state.items = isEditing
+      ? state.items.map((it) => (it.id === id ? optimistic : it))
+      : [...state.items, optimistic];
+    storeSet('cache', cacheItems(state.items));
     closeEntryModal();
     state.selected = payload.date;
     state.view = parseDate(payload.date);
-    await syncItems();
-  } catch (err) {
-    if (previousItems) state.items = previousItems;
-    if (state.editing && err.code === 'gone') {
-      setStatus('该事项已在其他设备删除', true);
-      await syncItems();
-      return;
+    renderAll();
+
+    try {
+      if (isEditing) {
+        await apiClient.enqueueWrite(id, () => apiClient.update(id, payload));
+      } else {
+        await apiClient.enqueueWrite(id, () => apiClient.create(id, payload));
+      }
+      state.items = state.items.map((it) => (it.id === id ? { ...payload, id } : it));
+      storeSet('cache', cacheItems(state.items));
+      renderAll();
+    } catch (err) {
+      if (err && err.code === 'gone') {
+        state.items = state.items.filter((it) => it.id !== id);
+        storeSet('cache', cacheItems(state.items));
+        renderAll();
+        setStatus('该事项已在其他设备删除', true);
+        return;
+      }
+      state.items = previousItems;
+      storeSet('cache', cacheItems(state.items));
+      renderAll();
+      setStatus(`没有保存成功：${err.message}`, true);
     }
-    setStatus(err.message, true);
+  } finally {
+    state.savingEntry = false;
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = '保存';
+    }
   }
 }
 
@@ -1542,12 +1673,18 @@ async function deleteItem(item) {
     setStatus(`已删除「${item.title}」`);
     return;
   }
+  const previousItems = state.items;
+  state.items = state.items.filter((it) => it.id !== item.id);
+  storeSet('cache', cacheItems(state.items));
+  renderAll();
+  setStatus(`已删除「${item.title}」`);
   try {
-    await apiClient.remove(item.id);
-    await syncItems();
-    setStatus(`已删除「${item.title}」`);
+    await apiClient.enqueueWrite(item.id, () => apiClient.remove(item.id));
   } catch (err) {
-    setStatus(err.message, true);
+    state.items = previousItems;
+    storeSet('cache', cacheItems(state.items));
+    renderAll();
+    setStatus(`删除失败：${err.message}`, true);
   }
 }
 
@@ -1824,10 +1961,23 @@ function toggleQuickAddType() {
   renderQuickAdd();
 }
 
+function finishQuickAdd() {
+  const input = $('quickAddInput');
+  if (input) input.value = '';
+  state.quickAddTypeOverride = null;
+  state.quickAddPendingLink = '';
+  setSurface('today');
+  renderAll();
+  postNative({ action: 'collapse' });
+}
+
 async function saveQuickAdd() {
+  if (state.savingQuickAdd) return;
   const parsed = parseQuickAddInput();
   if (!parsed || !parsed.title) return;
   if (!canMutate()) return;
+
+  const id = makeUuid32(); // 一次提交只对应一个 id
   const payload = {
     date: parsed.date,
     type: parsed.type,
@@ -1841,26 +1991,37 @@ async function saveQuickAdd() {
   if (state.quickAddPendingLink) {
     payload.link = state.quickAddPendingLink;
   }
-  if (isLocalMode()) {
-    state.items.push({ ...payload, id: makeUuid32() });
-    storeSet('demoItems', state.items);
-    renderAll();
-  } else {
-    try {
-      await apiClient.create(makeUuid32(), payload);
-      await syncItems();
-    } catch (err) {
-      setStatus(err.message, true);
+
+  const saveBtn = $('quickAddSave');
+  state.savingQuickAdd = true;
+  if (saveBtn) saveBtn.disabled = true;
+  try {
+    if (isLocalMode()) {
+      state.items.push({ ...payload, id });
+      storeSet('demoItems', state.items);
+      renderAll();
+      finishQuickAdd();
       return;
     }
+    const previousItems = state.items;
+    state.items = [...state.items, { ...payload, id, _pending: true }];
+    storeSet('cache', cacheItems(state.items));
+    finishQuickAdd(); // 立刻收起，不等网络
+    try {
+      await apiClient.enqueueWrite(id, () => apiClient.create(id, payload));
+      state.items = state.items.map((it) => (it.id === id ? { ...payload, id } : it));
+      storeSet('cache', cacheItems(state.items));
+      renderAll();
+    } catch (err) {
+      state.items = previousItems;
+      storeSet('cache', cacheItems(state.items));
+      renderAll();
+      setStatus(`没有保存成功：${err.message}`, true);
+    }
+  } finally {
+    state.savingQuickAdd = false;
+    if (saveBtn) saveBtn.disabled = false;
   }
-  const input = $('quickAddInput');
-  if (input) input.value = '';
-  state.quickAddTypeOverride = null;
-  state.quickAddPendingLink = '';
-  setSurface('today');
-  renderAll();
-  postNative({ action: 'collapse' });
 }
 
 function cancelQuickAdd() {
@@ -1938,6 +2099,41 @@ $('closeEntryModal').addEventListener('click', closeEntryModal);
 $('cancelEntryBtn').addEventListener('click', closeEntryModal);
 $('entryForm').addEventListener('submit', saveEntry);
 $('entryStart').addEventListener('input', syncEntryEndState);
+$('entryType').addEventListener('change', () => {
+  if ($('entryType').value !== '日程') {
+    // 待办 / 课程不带默认时间
+    $('entryStart').value = '';
+    $('entryEnd').value = '';
+    state.entryTimeTouched = false;
+    syncEntryEndState();
+    return;
+  }
+  if (state.editing) {
+    syncEntryEndState();
+    return;
+  }
+  state.entryTimeTouched = false;
+  applyDefaultEntryTimes();
+  syncEntryEndState();
+});
+$('entryDate').addEventListener('change', () => {
+  if (state.editing || state.entryTimeTouched) return;
+  if ($('entryType').value !== '日程') return;
+  applyDefaultEntryTimes();
+  syncEntryEndState();
+});
+$('entryStart').addEventListener('change', () => syncEntryEndWithStart(true));
+$('entryEnd').addEventListener('change', syncEntryDurationFromEnd);
+for (const presetBtn of document.querySelectorAll('#entryTimeQuick [data-time-preset]')) {
+  presetBtn.addEventListener('click', () => applyEntryTimePreset(presetBtn.dataset.timePreset));
+}
+if (globalThis.CBTimeCombo) {
+  globalThis.CBTimeCombo.attach({
+    start: $('entryStart'),
+    end: $('entryEnd'),
+    backdrop: $('entryBackdrop'),
+  });
+}
 $('openLinkBtn').addEventListener('click', () => {
   const link = state.editing && typeof state.editing.link === 'string' ? state.editing.link : '';
   if (!link) return;

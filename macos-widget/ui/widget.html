@@ -149,12 +149,18 @@
         <div class="form-row-2">
           <label>
             开始时间
-            <input id="entryStart" type="time">
+            <input id="entryStart" type="text" inputmode="numeric" autocomplete="off" placeholder="--:--">
           </label>
           <label>
             结束时间
-            <input id="entryEnd" type="time">
+            <input id="entryEnd" type="text" inputmode="numeric" autocomplete="off" placeholder="--:--">
           </label>
+        </div>
+        <div id="entryTimeQuick" class="time-quick-row">
+          <button class="chip-btn" type="button" data-time-preset="allDay">全天</button>
+          <button class="chip-btn" type="button" data-time-preset="30">30 分钟</button>
+          <button class="chip-btn" type="button" data-time-preset="60">1 小时</button>
+          <button class="chip-btn" type="button" data-time-preset="120">2 小时</button>
         </div>
         <label>
           场地 / 教室
@@ -262,6 +268,7 @@
   <script src="core.js"></script>
   <script src="vendor/chrono.min.js"></script>
   <script src="quickadd-parser.js"></script>
+  <script src="time-combo.js"></script>
   <script src="widget.js"></script>
 </body>
 </html>
