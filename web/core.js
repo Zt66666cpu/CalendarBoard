@@ -531,17 +531,28 @@
       return data;
     }
 
+    let refreshInFlight = null;
+
+    /// 合并并发刷新：多个请求同时发现令牌过期时只刷新一次。
     async function refreshSession() {
-      const session = sessionValue();
-      if (!session?.refresh_token) {
-        throw new ApiError('auth', 401, '登录已过期，请重新登录。');
+      if (refreshInFlight) return refreshInFlight;
+      refreshInFlight = (async () => {
+        const session = sessionValue();
+        if (!session?.refresh_token) {
+          throw new ApiError('auth', 401, '登录已过期，请重新登录。');
+        }
+        const data = await rawRequest('/auth/v1/token?grant_type=refresh_token', {
+          method: 'POST',
+          body: { refresh_token: session.refresh_token },
+        });
+        await saveSessionValue(data);
+        return data;
+      })();
+      try {
+        return await refreshInFlight;
+      } finally {
+        refreshInFlight = null;
       }
-      const data = await rawRequest('/auth/v1/token?grant_type=refresh_token', {
-        method: 'POST',
-        body: { refresh_token: session.refresh_token },
-      });
-      await saveSessionValue(data);
-      return data;
     }
 
     async function request(path, options = {}) {
@@ -592,21 +603,18 @@
     }
 
     async function create(id, payload) {
-      let finalId = id;
       try {
         await request('/rest/v1/calendar_items', {
           method: 'POST',
-          body: { id: finalId, payload },
+          body: { id, payload },
         });
       } catch (error) {
-        if (!isConflict(error) || payload?.type === 'meta') throw error;
-        finalId = makeUuid32();
-        await request('/rest/v1/calendar_items', {
-          method: 'POST',
-          body: { id: finalId, payload },
-        });
+        if (!isConflict(error)) throw error;
+        // id 是 32 位随机十六进制，撞号概率可忽略；409 基本等于“上一次其实已写入”。
+        // meta 行仍按原逻辑由 ensureMeta 处理。
+        if (payload?.type === 'meta') throw error;
       }
-      return { id: finalId, payload };
+      return { id, payload };
     }
 
     async function update(id, payload) {

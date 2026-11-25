@@ -361,33 +361,28 @@ test('fetchAll 分页拉取并分离 meta 与普通事项', async () => {
   assert.equal(result.items.some((item) => item.type === 'meta'), false);
 });
 
-test('create 遇普通事项 409 换随机 id 且只重试一次', async () => {
-  const attempts = [];
+test('create 遇普通事项 409 视为已写入：不换 id、不重试', async () => {
   const { api, calls } = harness((call) => {
     assert.equal(call.method, 'POST');
     assert.equal(call.path, '/rest/v1/calendar_items');
-    attempts.push(call.body.id);
-    if (attempts.length === 1) return { status: 409, data: { message: 'duplicate key' } };
-    return { status: 201, data: null };
+    return { status: 409, data: { message: 'duplicate key' } };
   });
   const payload = { type: '待办', date: '2026-11-24', title: '新建' };
   const created = await api.create('fixed-id', payload);
-  assert.equal(calls.length, 2);
-  assert.equal(attempts[0], 'fixed-id');
-  assert.match(attempts[1], /^[0-9a-f]{32}$/);
-  assert.notEqual(attempts[1], 'fixed-id');
-  assert.equal(created.id, attempts[1]);
-  assert.equal(created.payload, payload);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].body.id, 'fixed-id');
   assert.deepEqual(calls[0].body.payload, payload);
+  assert.equal(created.id, 'fixed-id');
+  assert.equal(created.payload, payload);
 });
 
-test('create 连续 409 会抛出 conflict 而不无限重试', async () => {
+test('create 对 meta 行的 409 仍然抛出 conflict（交给 ensureMeta 处理）', async () => {
   const { api, calls } = harness(() => ({ status: 409, data: { message: 'duplicate' } }));
   await assert.rejects(
-    api.create('fixed-id', { type: '日程', date: '2026-11-24' }),
+    api.create('fixed-id', { type: 'meta', schemaVersion: 2 }),
     (error) => error instanceof CBCore.ApiError && error.code === 'conflict' && error.status === 409,
   );
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 1);
 });
 
 test('ensureMeta 的 meta 409 不换 id，改为 GET 读取云端设置', async () => {
